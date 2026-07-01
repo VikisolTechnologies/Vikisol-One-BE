@@ -1,0 +1,7 @@
+target/
+*.log
+.env
+.env.local
+upload*/
+*.class
+.mvn/repository/

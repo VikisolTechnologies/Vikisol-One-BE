@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/vikisol_one
+    username: postgres
+    password: Welcome@12345#
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+app:
+  jwt:
+    secret: vikisolOneSecretKeyForJwtTokenGeneration2026MustBe256BitsLongAtLeast!!
+    expiration-ms: 86400000
+    refresh-expiration-ms: 604800000
