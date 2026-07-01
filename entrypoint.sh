@@ -1,22 +1,26 @@
 #!/bin/sh
-# Convert Railway's DATABASE_URL (postgres://user:pass@host:port/db)
-# to Spring Boot JDBC format (jdbc:postgresql://host:port/db)
+set -e
+
+# Railway injects DATABASE_URL as postgres://user:pass@host:port/db
+# Convert to individual JDBC-compatible vars Spring Boot can use
 if [ -n "$DATABASE_URL" ]; then
-  # Strip the postgres:// or postgresql:// prefix
-  DB_STRIPPED=$(echo "$DATABASE_URL" | sed 's|^postgres://||' | sed 's|^postgresql://||')
-  # Extract user:pass@host:port/db parts
-  DB_USERPASS=$(echo "$DB_STRIPPED" | cut -d@ -f1)
-  DB_HOSTPATH=$(echo "$DB_STRIPPED" | cut -d@ -f2)
-  export PGUSER=$(echo "$DB_USERPASS" | cut -d: -f1)
-  export PGPASSWORD=$(echo "$DB_USERPASS" | cut -d: -f2)
-  export PGHOST=$(echo "$DB_HOSTPATH" | cut -d: -f1)
-  export PGPORT=$(echo "$DB_HOSTPATH" | cut -d: -f2 | cut -d/ -f1)
-  export PGDATABASE=$(echo "$DB_HOSTPATH" | cut -d/ -f2)
+  STRIPPED=$(echo "$DATABASE_URL" | sed 's|^postgres://||;s|^postgresql://||')
+  USERPASS=$(echo "$STRIPPED" | cut -d@ -f1)
+  HOSTPATH=$(echo "$STRIPPED" | cut -d@ -f2)
+  export PGUSER=$(echo "$USERPASS" | cut -d: -f1)
+  export PGPASSWORD=$(echo "$USERPASS" | cut -d: -f2)
+  HOSTPORT=$(echo "$HOSTPATH" | cut -d/ -f1)
+  export PGHOST=$(echo "$HOSTPORT" | cut -d: -f1)
+  export PGPORT=$(echo "$HOSTPORT" | cut -d: -f2)
+  export PGDATABASE=$(echo "$HOSTPATH" | cut -d/ -f2)
+  export SPRING_DATASOURCE_URL="jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}"
+  export SPRING_DATASOURCE_USERNAME="$PGUSER"
+  export SPRING_DATASOURCE_PASSWORD="$PGPASSWORD"
 fi
 
 exec java \
   -XX:+UseContainerSupport \
   -XX:MaxRAMPercentage=75.0 \
   -Djava.security.egd=file:/dev/./urandom \
-  -Dspring.profiles.active=${SPRING_PROFILES_ACTIVE:-prod} \
+  -Dspring.profiles.active="${SPRING_PROFILES_ACTIVE:-prod}" \
   -jar app.jar
