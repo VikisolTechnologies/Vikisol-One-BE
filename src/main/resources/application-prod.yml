@@ -5,9 +5,9 @@ server:
 
 spring:
   datasource:
-    url: jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}
-    username: ${PGUSER}
-    password: ${PGPASSWORD}
+    url: ${DATABASE_URL:jdbc:postgresql://${PGHOST:localhost}:${PGPORT:5432}/${PGDATABASE:vikisol_one}}
+    username: ${PGUSER:postgres}
+    password: ${PGPASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5
@@ -47,26 +47,26 @@ app:
     upload-dir: ${UPLOAD_DIR:/tmp/vikisol-uploads}
 
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:VikisolOneHRMSSecretKey2026ForJwtTokenSigningMustBe512BitsLongEnough!!}
     expiration-ms: 86400000
     refresh-expiration-ms: 604800000
 
   cors:
     allowed-origins: ${CORS_ORIGINS:https://hrlms.vikisol.in,https://vikisol-one-hrlms.vercel.app}
 
-logging:
-  level:
-    root: WARN
-    com.vikisol: INFO
-    org.springframework.web: WARN
-  pattern:
-    console: "%d{HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+      base-path: /actuator
   endpoint:
     health:
       show-details: never
+
+logging:
+  level:
+    root: WARN
+    com.vikisol: INFO
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %logger{36} - %msg%n"

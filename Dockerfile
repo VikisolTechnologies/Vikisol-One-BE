@@ -12,11 +12,8 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 RUN addgroup -S vikisol && adduser -S vikisol -G vikisol
 COPY --from=builder /app/target/*.jar app.jar
-RUN mkdir -p uploads && chown -R vikisol:vikisol /app
+COPY entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh && mkdir -p /tmp/vikisol-uploads && chown -R vikisol:vikisol /app /tmp/vikisol-uploads
 USER vikisol
 EXPOSE 8080
-ENTRYPOINT ["java", \
-  "-XX:+UseContainerSupport", \
-  "-XX:MaxRAMPercentage=75.0", \
-  "-Djava.security.egd=file:/dev/./urandom", \
-  "-jar", "app.jar"]
+ENTRYPOINT ["sh", "entrypoint.sh"]
