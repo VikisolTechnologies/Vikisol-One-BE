@@ -47,7 +47,7 @@ public class AssetController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'HR_MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'HR_MANAGER', 'CEO')")
     public ResponseEntity<ApiResponse<PagedResponse<AssetResponse>>> getAllAssets(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {

@@ -53,7 +53,7 @@ public class DocumentController {
     }
 
     @GetMapping("/unverified")
-    @PreAuthorize("hasRole('HR_MANAGER')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<DocumentResponse>>> getUnverifiedDocuments() {
         List<DocumentResponse> documents = documentService.getUnverifiedDocuments();
         return ResponseEntity.ok(new ApiResponse<>(true, "Unverified documents retrieved successfully", documents));
