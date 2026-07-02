@@ -1,16 +1,21 @@
 package com.vikisol.one.settings.controller;
 
 import com.vikisol.one.common.dto.ApiResponse;
+import com.vikisol.one.security.RoleEnum;
+import com.vikisol.one.security.service.UserPrincipal;
 import com.vikisol.one.settings.dto.*;
 import com.vikisol.one.settings.entity.CompanySettings;
+import com.vikisol.one.settings.service.RolePermissionService;
 import com.vikisol.one.settings.service.SettingsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -19,6 +24,33 @@ import java.util.UUID;
 public class SettingsController {
 
     private final SettingsService settingsService;
+    private final RolePermissionService rolePermissionService;
+
+    // ── Role Permissions (CEO controls what each role can see) ───────────────
+
+    @GetMapping("/role-permissions")
+    @PreAuthorize("hasRole('CEO')")
+    public ResponseEntity<ApiResponse<List<RolePermissionEntry>>> getRolePermissionMatrix() {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Role permission matrix retrieved", rolePermissionService.getMatrix()));
+    }
+
+    @PutMapping("/role-permissions")
+    @PreAuthorize("hasRole('CEO')")
+    public ResponseEntity<ApiResponse<List<RolePermissionEntry>>> updateRolePermissionMatrix(
+            @RequestBody List<RolePermissionEntry> updates) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Role permissions updated", rolePermissionService.updateMatrix(updates)));
+    }
+
+    // Any authenticated user can fetch which modules their own role can see, to drive the nav.
+    @GetMapping("/role-permissions/me")
+    public ResponseEntity<ApiResponse<Set<String>>> getMyVisibleModules(@AuthenticationPrincipal UserPrincipal principal) {
+        RoleEnum role = principal.getAuthorities().stream()
+                .map(a -> a.getAuthority().replace("ROLE_", ""))
+                .map(RoleEnum::valueOf)
+                .findFirst()
+                .orElse(RoleEnum.EMPLOYEE);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Visible modules retrieved", rolePermissionService.getVisibleModules(role)));
+    }
 
     @GetMapping("/company")
     @PreAuthorize("hasAnyRole('ADMIN', 'CEO')")

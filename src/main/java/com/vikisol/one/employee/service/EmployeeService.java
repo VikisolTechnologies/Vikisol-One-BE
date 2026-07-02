@@ -16,14 +16,17 @@ import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.auth.entity.User;
 import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.payroll.service.PayrollService;
+import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -38,6 +41,48 @@ public class EmployeeService {
     private final UserRepository userRepository;
     private final PayrollService payrollService;
     private final EmailService emailService;
+    private final PasswordEncoder passwordEncoder;
+
+    private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    private String generateTempPassword() {
+        StringBuilder sb = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            sb.append(TEMP_PASSWORD_CHARS.charAt(RANDOM.nextInt(TEMP_PASSWORD_CHARS.length())));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Every employee needs a way to log in. If no userId was supplied and no account exists yet
+     * for this email, provision one (defaulting to EMPLOYEE role) and email the temp password.
+     * This is what makes "HR adds an employee" actually result in a usable login for 200+ staff,
+     * instead of a profile record nobody can sign into.
+     */
+    private User resolveOrProvisionUser(EmployeeRequest request) {
+        if (request.userId() != null) {
+            return userRepository.findById(request.userId()).orElseThrow(() -> new RuntimeException("User not found"));
+        }
+        if (request.email() == null) {
+            return null;
+        }
+        return userRepository.findByEmail(request.email()).orElseGet(() -> {
+            String tempPassword = generateTempPassword();
+            User newUser = User.builder()
+                    .email(request.email())
+                    .password(passwordEncoder.encode(tempPassword))
+                    .firstName(request.firstName())
+                    .lastName(request.lastName())
+                    .role(RoleEnum.EMPLOYEE)
+                    .enabled(true)
+                    .accountNonLocked(true)
+                    .build();
+            newUser = userRepository.save(newUser);
+            emailService.sendWelcomeEmail(request.email(), request.firstName() + " " + request.lastName(), tempPassword);
+            return newUser;
+        });
+    }
 
     @Transactional
     public EmployeeResponse createEmployee(EmployeeRequest request) {
@@ -49,9 +94,7 @@ public class EmployeeService {
         Designation designation = request.designationId() != null
                 ? designationRepository.findById(request.designationId()).orElseThrow(() -> new RuntimeException("Designation not found"))
                 : null;
-        User user = request.userId() != null
-                ? userRepository.findById(request.userId()).orElseThrow(() -> new RuntimeException("User not found"))
-                : null;
+        User user = resolveOrProvisionUser(request);
 
         Employee employee = Employee.builder()
                 .employeeId(nextEmployeeId)
@@ -253,6 +296,23 @@ public class EmployeeService {
         return toResponse(employee);
     }
 
+    /**
+     * Changes an employee's application login role (e.g. promoting EMPLOYEE -> MANAGER).
+     * Only meaningful for employees who already have a linked login account.
+     */
+    @Transactional
+    public EmployeeResponse changeAccountRole(UUID id, RoleEnum newRole) {
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        if (employee.getUser() == null) {
+            throw new RuntimeException("This employee has no login account to change the role of");
+        }
+        User user = employee.getUser();
+        user.setRole(newRole);
+        userRepository.save(user);
+        return toResponse(employee);
+    }
+
     private String generateNextEmployeeId() {
         List<Employee> all = employeeRepository.findAll();
         int maxNum = all.stream()
@@ -323,7 +383,8 @@ public class EmployeeService {
                 employee.getGrossSalary(),
                 employee.getCtc(),
                 employee.isActive(),
-                employee.getCreatedAt()
+                employee.getCreatedAt(),
+                employee.getUser() != null ? employee.getUser().getRole().name() : null
         );
     }
 

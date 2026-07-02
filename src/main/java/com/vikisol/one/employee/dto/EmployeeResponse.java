@@ -53,6 +53,7 @@ public record EmployeeResponse(
         BigDecimal grossSalary,
         BigDecimal ctc,
         boolean isActive,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String accountRole
 ) {
 }

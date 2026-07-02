@@ -8,6 +8,7 @@ import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.dto.HikeRequest;
 import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.service.EmployeeService;
+import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -110,5 +111,13 @@ public class EmployeeController {
     public ResponseEntity<ApiResponse<EmployeeResponse>> recordResignation(@PathVariable UUID id, @RequestBody ResignationRequest request) {
         EmployeeResponse employee = employeeService.recordResignation(id, request);
         return ResponseEntity.ok(new ApiResponse<>(true, "Resignation recorded and acknowledgement emailed", employee));
+    }
+
+    // Promotes/changes an employee's application login role (e.g. EMPLOYEE -> MANAGER). CEO only.
+    @PutMapping("/{id}/account-role")
+    @PreAuthorize("hasRole('CEO')")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> changeAccountRole(@PathVariable UUID id, @RequestParam RoleEnum role) {
+        EmployeeResponse employee = employeeService.changeAccountRole(id, role);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Account role updated", employee));
     }
 }
