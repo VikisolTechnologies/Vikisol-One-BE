@@ -34,6 +34,6 @@ public class Notification extends BaseEntity {
     private LocalDateTime readAt;
 
     public enum NotificationType {
-        LEAVE, ATTENDANCE, PAYROLL, TICKET, PERFORMANCE, GENERAL, RECRUITMENT, PROJECT
+        LEAVE, ATTENDANCE, PAYROLL, TICKET, PERFORMANCE, GENERAL, RECRUITMENT, PROJECT, TIMESHEET
     }
 }

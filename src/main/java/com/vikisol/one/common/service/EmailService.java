@@ -119,6 +119,12 @@ public class EmailService {
         sendEmail(email, subject, body);
     }
 
+    public void sendTimesheetSubmittedNotification(String managerEmail, String employeeName, String weekLabel) {
+        String subject = "Timesheet Submitted for Approval - " + employeeName;
+        String body = String.format("Dear Manager,\n\n%s has submitted their timesheet for %s and it is awaiting your approval.\n\nPlease log in to Vikisol One to review.\n\nRegards,\nVikisol One HR", employeeName, weekLabel);
+        sendEmail(managerEmail, subject, body);
+    }
+
     public void sendWelcomeEmail(String email, String name, String tempPassword) {
         String subject = "Welcome to Vikisol One";
         String body = String.format("Dear %s,\n\nWelcome to Vikisol One!\n\nYour login credentials:\nEmail: %s\nPassword: %s\n\nPlease change your password after first login.\n\nRegards,\nVikisol One HR", name, email, tempPassword);

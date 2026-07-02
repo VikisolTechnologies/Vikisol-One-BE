@@ -2,8 +2,11 @@ package com.vikisol.one.timesheet.service;
 
 import com.vikisol.one.common.exception.BadRequestException;
 import com.vikisol.one.common.exception.ResourceNotFoundException;
+import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.notification.entity.Notification;
+import com.vikisol.one.notification.service.NotificationService;
 import com.vikisol.one.project.entity.Project;
 import com.vikisol.one.project.entity.Task;
 import com.vikisol.one.project.repository.ProjectRepository;
@@ -13,13 +16,16 @@ import com.vikisol.one.timesheet.dto.*;
 import com.vikisol.one.timesheet.entity.TimesheetEntry;
 import com.vikisol.one.timesheet.repository.TimesheetEntryRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -29,6 +35,8 @@ public class TimesheetService {
     private final EmployeeRepository employeeRepository;
     private final ProjectRepository projectRepository;
     private final TaskRepository taskRepository;
+    private final NotificationService notificationService;
+    private final EmailService emailService;
 
     public TimesheetEntryResponse createEntry(TimesheetEntryRequest request, UserPrincipal principal) {
         Employee emp = getEmployee(principal);
@@ -61,12 +69,42 @@ public class TimesheetService {
     }
 
     public void submitEntries(TimesheetSubmitRequest request, UserPrincipal principal) {
+        LocalDate latestDate = null;
         for (UUID id : request.entryIds()) {
             TimesheetEntry entry = entryRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Entry not found: " + id));
             entry.setStatus(TimesheetEntry.Status.SUBMITTED);
             entryRepository.save(entry);
+            if (latestDate == null || entry.getDate().isAfter(latestDate)) latestDate = entry.getDate();
         }
+        if (!request.entryIds().isEmpty()) {
+            notifyManagerOfSubmission(getEmployee(principal), latestDate);
+        }
+    }
+
+    private void notifyManagerOfSubmission(Employee employee, LocalDate weekDate) {
+        if (employee.getReportingManagerId() == null) return;
+        employeeRepository.findById(employee.getReportingManagerId()).ifPresent(manager -> {
+            String employeeName = employee.getFirstName() + " " + employee.getLastName();
+            String weekLabel = weekDate != null ? "week of " + weekDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) : "this week";
+            if (manager.getUser() != null) {
+                notificationService.sendNotification(
+                        manager.getUser().getId(),
+                        "Timesheet Submitted",
+                        employeeName + " submitted their timesheet for " + weekLabel + " and it needs your approval.",
+                        Notification.NotificationType.TIMESHEET,
+                        employee.getId(),
+                        "TIMESHEET"
+                );
+            }
+            if (manager.getEmail() != null) {
+                try {
+                    emailService.sendTimesheetSubmittedNotification(manager.getEmail(), employeeName, weekLabel);
+                } catch (Exception e) {
+                    log.warn("Failed to email manager about timesheet submission: {}", e.getMessage());
+                }
+            }
+        });
     }
 
     public TimesheetEntryResponse processAction(UUID id, String action, UserPrincipal principal) {
