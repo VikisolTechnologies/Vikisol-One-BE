@@ -11,7 +11,7 @@ import java.time.LocalTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "timesheet_entries", uniqueConstraints = @UniqueConstraint(columnNames = {"employee_id", "project_id", "date"}))
+@Table(name = "timesheet_entries", uniqueConstraints = @UniqueConstraint(columnNames = {"employee_id", "date"}))
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 @EqualsAndHashCode(callSuper = true)
 public class TimesheetEntry extends BaseEntity {
@@ -20,8 +20,9 @@ public class TimesheetEntry extends BaseEntity {
     @JoinColumn(name = "employee_id", nullable = false)
     private Employee employee;
 
+    // Null means the employee was on Bench (non-billable) that day - not assigned to any project.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "project_id", nullable = false)
+    @JoinColumn(name = "project_id")
     private Project project;
 
     @ManyToOne(fetch = FetchType.LAZY)

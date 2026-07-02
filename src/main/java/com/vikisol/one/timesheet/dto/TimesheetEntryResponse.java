@@ -10,5 +10,6 @@ public record TimesheetEntryResponse(
         UUID taskId, String taskTitle,
         LocalDate date, Double hours, String description,
         LocalTime checkInTime, LocalTime checkOutTime, String reason, String workLocation,
+        boolean billable,
         String status, UUID approvedById
 ) {}

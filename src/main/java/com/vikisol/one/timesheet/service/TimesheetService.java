@@ -38,10 +38,19 @@ public class TimesheetService {
     private final NotificationService notificationService;
     private final EmailService emailService;
 
+    private Project resolveProject(UUID projectId) {
+        if (projectId == null) return null; // Bench - non-billable, no project
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
+        if (!project.isActive()) {
+            throw new BadRequestException("Cannot log time against an inactive project");
+        }
+        return project;
+    }
+
     public TimesheetEntryResponse createEntry(TimesheetEntryRequest request, UserPrincipal principal) {
         Employee emp = getEmployee(principal);
-        Project project = projectRepository.findById(request.projectId())
-                .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
+        Project project = resolveProject(request.projectId());
         Task task = request.taskId() != null
                 ? taskRepository.findById(request.taskId()).orElse(null) : null;
 
@@ -79,6 +88,7 @@ public class TimesheetService {
         if (entry.getStatus() != TimesheetEntry.Status.DRAFT && entry.getStatus() != TimesheetEntry.Status.REJECTED) {
             throw new BadRequestException("Cannot edit submitted/approved entries");
         }
+        entry.setProject(resolveProject(request.projectId()));
         entry.setHours(resolveHours(request));
         entry.setDescription(request.description());
         entry.setDate(request.date());
@@ -166,15 +176,18 @@ public class TimesheetService {
     }
 
     private TimesheetEntryResponse mapResponse(TimesheetEntry e) {
+        boolean billable = e.getProject() != null;
         return new TimesheetEntryResponse(
                 e.getId(), e.getEmployee().getId(),
                 e.getEmployee().getFirstName() + " " + e.getEmployee().getLastName(),
-                e.getProject().getId(), e.getProject().getName(),
+                billable ? e.getProject().getId() : null,
+                billable ? e.getProject().getName() : "Bench",
                 e.getTask() != null ? e.getTask().getId() : null,
                 e.getTask() != null ? e.getTask().getTitle() : null,
                 e.getDate(), e.getHours(), e.getDescription(),
                 e.getCheckInTime(), e.getCheckOutTime(), e.getReason(),
                 e.getWorkLocation() != null ? e.getWorkLocation().name() : null,
+                billable,
                 e.getStatus().name(), e.getApprovedById()
         );
     }

@@ -7,7 +7,8 @@ import java.time.LocalTime;
 import java.util.UUID;
 
 public record TimesheetEntryRequest(
-        @NotNull UUID projectId,
+        // Null means the employee was on Bench (non-billable) that day.
+        UUID projectId,
         UUID taskId,
         @NotNull LocalDate date,
         // hours is optional when checkInTime/checkOutTime are supplied - the service computes it
