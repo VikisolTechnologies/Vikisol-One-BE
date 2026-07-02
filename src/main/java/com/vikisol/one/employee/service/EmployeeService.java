@@ -1,6 +1,7 @@
 package com.vikisol.one.employee.service;
 
 import com.vikisol.one.common.dto.PagedResponse;
+import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
@@ -8,10 +9,13 @@ import com.vikisol.one.designation.repository.DesignationRepository;
 import com.vikisol.one.employee.dto.EmployeeListResponse;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
+import com.vikisol.one.employee.dto.HikeRequest;
+import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.auth.entity.User;
 import com.vikisol.one.auth.repository.UserRepository;
+import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,7 +23,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -30,6 +36,8 @@ public class EmployeeService {
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final UserRepository userRepository;
+    private final PayrollService payrollService;
+    private final EmailService emailService;
 
     @Transactional
     public EmployeeResponse createEmployee(EmployeeRequest request) {
@@ -189,6 +197,60 @@ public class EmployeeService {
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
         employee.setActive(false);
         employeeRepository.save(employee);
+    }
+
+    /**
+     * Revises an employee's CTC using the CEO's standard breakup template and emails a hike letter.
+     */
+    @Transactional
+    public EmployeeResponse issueHike(UUID id, HikeRequest request) {
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+        BigDecimal oldCtc = employee.getCtc();
+        Map<String, BigDecimal> breakup = payrollService.computeCtcBreakup(request.newAnnualCtc());
+
+        employee.setBasicSalary(breakup.get("basicSalary"));
+        employee.setHra(breakup.get("hra"));
+        employee.setConveyanceAllowance(breakup.get("conveyanceAllowance"));
+        employee.setMedicalAllowance(breakup.get("medicalAllowance"));
+        employee.setSpecialAllowance(breakup.get("specialAllowance"));
+        employee.setGrossSalary(breakup.get("grossSalary"));
+        employee.setCtc(breakup.get("ctc"));
+
+        employee = employeeRepository.save(employee);
+
+        emailService.sendHikeLetterEmail(
+                employee.getEmail(),
+                employee.getFirstName() + " " + employee.getLastName(),
+                oldCtc,
+                request.newAnnualCtc(),
+                breakup,
+                request.effectiveDate(),
+                request.reason()
+        );
+
+        return toResponse(employee);
+    }
+
+    /**
+     * Records a resignation, marks the employee ON_NOTICE, and emails an acknowledgement.
+     */
+    @Transactional
+    public EmployeeResponse recordResignation(UUID id, ResignationRequest request) {
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+        employee.setEmploymentStatus(Employee.EmploymentStatus.ON_NOTICE);
+        employee = employeeRepository.save(employee);
+
+        emailService.sendResignationAcknowledgementEmail(
+                employee.getEmail(),
+                employee.getFirstName() + " " + employee.getLastName(),
+                request.lastWorkingDate()
+        );
+
+        return toResponse(employee);
     }
 
     private String generateNextEmployeeId() {

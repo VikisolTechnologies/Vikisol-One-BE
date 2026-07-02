@@ -26,6 +26,11 @@ public class CandidateResponse {
     private String notes;
     private UUID jobPostingId;
     private String jobPostingTitle;
+    private BigDecimal offeredCtc;
+    private UUID offeredDesignationId;
+    private String offeredDesignationTitle;
+    private java.time.LocalDate offeredDateOfJoining;
+    private String convertedEmployeeId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

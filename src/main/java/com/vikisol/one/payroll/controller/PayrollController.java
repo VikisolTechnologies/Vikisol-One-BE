@@ -100,6 +100,28 @@ public class PayrollController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Config updated", config));
     }
 
+    // ── CTC Breakup Template (CEO sets it once, applies to all offers/employees) ──
+
+    @GetMapping("/ctc-breakup-template")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'RECRUITER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<java.util.Map<String, java.math.BigDecimal>>> getCtcBreakupTemplate() {
+        return ResponseEntity.ok(new ApiResponse<>(true, "CTC breakup template retrieved", payrollService.getCtcBreakupTemplate()));
+    }
+
+    @PutMapping("/ctc-breakup-template")
+    @PreAuthorize("hasRole('CEO')")
+    public ResponseEntity<ApiResponse<java.util.Map<String, java.math.BigDecimal>>> updateCtcBreakupTemplate(
+            @RequestBody java.util.Map<String, java.math.BigDecimal> percentages) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "CTC breakup template updated", payrollService.updateCtcBreakupTemplate(percentages)));
+    }
+
+    @PostMapping("/ctc-breakup-preview")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'RECRUITER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<java.util.Map<String, java.math.BigDecimal>>> previewCtcBreakup(
+            @RequestParam java.math.BigDecimal ctc) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "CTC breakup computed", payrollService.computeCtcBreakup(ctc)));
+    }
+
     // ── Salary Advance ──────────────────────────────────────────────────────
 
     @PostMapping("/salary-advance")

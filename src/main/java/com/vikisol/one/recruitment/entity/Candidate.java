@@ -50,6 +50,21 @@ public class Candidate extends BaseEntity {
     @JoinColumn(name = "job_posting_id")
     private JobPosting jobPosting;
 
+    // Set when HR selects the candidate and generates the offer
+    private BigDecimal offeredCtc;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "offered_designation_id")
+    private com.vikisol.one.designation.entity.Designation offeredDesignation;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "offered_department_id")
+    private com.vikisol.one.department.entity.Department offeredDepartment;
+
+    private java.time.LocalDate offeredDateOfJoining;
+
+    private String convertedEmployeeId;
+
     public enum Source {
         PORTAL, REFERRAL, AGENCY, DIRECT, LINKEDIN
     }

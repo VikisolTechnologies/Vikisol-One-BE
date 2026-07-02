@@ -112,6 +112,16 @@ public class RecruitmentController {
                 recruitmentService.updateCandidateStatus(id, status)));
     }
 
+    // Marks the candidate SELECTED, generates their employee ID using the CEO's standard CTC
+    // breakup, and emails the offer/congratulations letter.
+    @PostMapping("/candidates/{id}/select")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<SelectCandidateResponse>> selectCandidate(
+            @PathVariable UUID id, @Valid @RequestBody SelectCandidateRequest request) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate selected and offer sent",
+                recruitmentService.selectCandidate(id, request)));
+    }
+
     // ─── Interviews ───
 
     @PostMapping("/interviews")

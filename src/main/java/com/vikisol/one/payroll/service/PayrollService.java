@@ -65,6 +65,64 @@ public class PayrollService {
         return payrollConfigRepository.findAll();
     }
 
+    // ── CTC Breakup Template (CEO-defined, applies to every offer/employee) ──
+
+    private static final String CTC_BREAKUP_CATEGORY = "CTC_BREAKUP";
+    private static final java.util.Map<String, BigDecimal> DEFAULT_CTC_BREAKUP = java.util.Map.of(
+            "BASIC_PCT", new BigDecimal("50"),
+            "HRA_PCT", new BigDecimal("20"),
+            "CONVEYANCE_PCT", new BigDecimal("10"),
+            "MEDICAL_PCT", new BigDecimal("10"),
+            "SPECIAL_PCT", new BigDecimal("10")
+    );
+
+    public java.util.Map<String, BigDecimal> getCtcBreakupTemplate() {
+        List<PayrollConfig> saved = payrollConfigRepository.findByCategory(CTC_BREAKUP_CATEGORY);
+        java.util.Map<String, BigDecimal> result = new java.util.LinkedHashMap<>(DEFAULT_CTC_BREAKUP);
+        for (PayrollConfig c : saved) {
+            result.put(c.getKey(), new BigDecimal(c.getValue()));
+        }
+        return result;
+    }
+
+    public java.util.Map<String, BigDecimal> updateCtcBreakupTemplate(java.util.Map<String, BigDecimal> percentages) {
+        BigDecimal total = percentages.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (total.compareTo(new BigDecimal("100")) != 0) {
+            throw new IllegalArgumentException("CTC breakup percentages must add up to 100, got " + total);
+        }
+        for (var entry : percentages.entrySet()) {
+            PayrollConfig config = payrollConfigRepository.findByKey(entry.getKey())
+                    .orElse(PayrollConfig.builder().key(entry.getKey()).build());
+            config.setValue(entry.getValue().toPlainString());
+            config.setCategory(CTC_BREAKUP_CATEGORY);
+            config.setDescription("Standard CTC breakup percentage");
+            payrollConfigRepository.save(config);
+        }
+        return getCtcBreakupTemplate();
+    }
+
+    /**
+     * Splits an annual CTC into salary components using the CEO-defined standard breakup,
+     * returning monthly figures the same way employee.basicSalary/hra/etc. are stored.
+     */
+    public java.util.Map<String, BigDecimal> computeCtcBreakup(BigDecimal annualCtc) {
+        java.util.Map<String, BigDecimal> template = getCtcBreakupTemplate();
+        java.util.Map<String, BigDecimal> breakup = new java.util.LinkedHashMap<>();
+        BigDecimal monthlyCtc = annualCtc.divide(new BigDecimal("12"), 2, RoundingMode.HALF_UP);
+        breakup.put("basicSalary", pctOf(monthlyCtc, template.get("BASIC_PCT")));
+        breakup.put("hra", pctOf(monthlyCtc, template.get("HRA_PCT")));
+        breakup.put("conveyanceAllowance", pctOf(monthlyCtc, template.get("CONVEYANCE_PCT")));
+        breakup.put("medicalAllowance", pctOf(monthlyCtc, template.get("MEDICAL_PCT")));
+        breakup.put("specialAllowance", pctOf(monthlyCtc, template.get("SPECIAL_PCT")));
+        breakup.put("grossSalary", monthlyCtc);
+        breakup.put("ctc", annualCtc);
+        return breakup;
+    }
+
+    private BigDecimal pctOf(BigDecimal amount, BigDecimal pct) {
+        return amount.multiply(pct).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+    }
+
     // ── Payroll Run ─────────────────────────────────────────────────────────
 
     public PayrollSummaryResponse runPayroll(PayrollRunRequest request) {

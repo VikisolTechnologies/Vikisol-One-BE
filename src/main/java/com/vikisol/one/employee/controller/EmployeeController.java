@@ -5,6 +5,8 @@ import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.employee.dto.EmployeeListResponse;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
+import com.vikisol.one.employee.dto.HikeRequest;
+import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.service.EmployeeService;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
@@ -92,5 +94,21 @@ public class EmployeeController {
     public ResponseEntity<ApiResponse<List<EmployeeListResponse>>> getByReportingManager(@PathVariable UUID managerId) {
         List<EmployeeListResponse> employees = employeeService.getByReportingManager(managerId);
         return ResponseEntity.ok(new ApiResponse<>(true, "Direct reports retrieved", employees));
+    }
+
+    // Revises CTC using the CEO's standard breakup template and emails a hike letter.
+    @PostMapping("/{id}/hike")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER')")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> issueHike(@PathVariable UUID id, @RequestBody HikeRequest request) {
+        EmployeeResponse employee = employeeService.issueHike(id, request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Hike issued and letter emailed", employee));
+    }
+
+    // Records a resignation and emails an acknowledgement letter.
+    @PostMapping("/{id}/resign")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> recordResignation(@PathVariable UUID id, @RequestBody ResignationRequest request) {
+        EmployeeResponse employee = employeeService.recordResignation(id, request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Resignation recorded and acknowledgement emailed", employee));
     }
 }

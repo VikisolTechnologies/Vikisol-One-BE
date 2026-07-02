@@ -221,6 +221,28 @@ public class AttendanceService {
         regularizationRepository.save(regularization);
     }
 
+    /**
+     * Team-wide attendance for a given date. CEO/HR_MANAGER/ADMIN see the whole company;
+     * a MANAGER sees only their direct reports.
+     */
+    @Transactional(readOnly = true)
+    public List<AttendanceResponse> getTeamAttendance(UserPrincipal principal, LocalDate date) {
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+
+        List<Attendance> records = attendanceRepository.findByDate(date);
+
+        if (!isCompanyWide) {
+            Employee manager = employeeRepository.findByUserId(principal.getId())
+                    .orElseThrow(() -> new RuntimeException("Employee not found"));
+            records = records.stream()
+                    .filter(a -> manager.getId().equals(a.getEmployee().getReportingManagerId()))
+                    .toList();
+        }
+
+        return records.stream().map(this::mapToResponse).toList();
+    }
+
     public void markAbsentees(LocalDate date) {
         List<Employee> allEmployees = employeeRepository.findAll();
 

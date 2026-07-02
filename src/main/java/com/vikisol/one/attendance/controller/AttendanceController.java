@@ -56,6 +56,15 @@ public class AttendanceController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Attendance records retrieved", response));
     }
 
+    @GetMapping("/team")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_MANAGER', 'CEO', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<AttendanceResponse>>> getTeamAttendance(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        List<AttendanceResponse> response = attendanceService.getTeamAttendance(principal, date != null ? date : LocalDate.now());
+        return ResponseEntity.ok(new ApiResponse<>(true, "Team attendance retrieved", response));
+    }
+
     @GetMapping("/summary/{employeeId}")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_MANAGER', 'CEO', 'ADMIN')")
     public ResponseEntity<ApiResponse<MonthlyAttendanceSummary>> getMonthlyAttendanceSummary(

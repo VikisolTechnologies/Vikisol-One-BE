@@ -1,7 +1,13 @@
 package com.vikisol.one.recruitment.service;
 
+import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.designation.entity.Designation;
+import com.vikisol.one.employee.dto.EmployeeRequest;
+import com.vikisol.one.employee.dto.EmployeeResponse;
+import com.vikisol.one.employee.entity.Employee;
+import com.vikisol.one.employee.service.EmployeeService;
+import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.recruitment.dto.*;
 import com.vikisol.one.recruitment.entity.Candidate;
 import com.vikisol.one.recruitment.entity.Interview;
@@ -17,8 +23,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -30,6 +38,9 @@ public class RecruitmentService {
     private final CandidateRepository candidateRepository;
     private final InterviewRepository interviewRepository;
     private final EntityManager entityManager;
+    private final EmployeeService employeeService;
+    private final PayrollService payrollService;
+    private final EmailService emailService;
 
     // ─── Job Postings ───
 
@@ -161,6 +172,74 @@ public class RecruitmentService {
         candidateRepository.deleteById(id);
     }
 
+    /**
+     * Marks a candidate as SELECTED, generates their employee record + employee ID using the
+     * CEO-defined standard CTC breakup, and emails the offer/congratulations letter.
+     */
+    public SelectCandidateResponse selectCandidate(UUID id, SelectCandidateRequest request) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+
+        Designation designation = entityManager.getReference(Designation.class, request.designationId());
+        Department department = entityManager.getReference(Department.class, request.departmentId());
+
+        Map<String, BigDecimal> breakup = payrollService.computeCtcBreakup(request.offeredCtc());
+
+        EmployeeRequest employeeRequest = new EmployeeRequest(
+                null,
+                candidate.getFirstName(),
+                candidate.getLastName(),
+                candidate.getEmail(),
+                candidate.getPhone(),
+                null,
+                null,
+                request.departmentId(),
+                request.designationId(),
+                request.dateOfJoining(),
+                null, null, null,
+                Employee.EmploymentType.FULL_TIME,
+                Employee.EmploymentStatus.ACTIVE,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                null, null, null, null,
+                breakup.get("basicSalary"),
+                breakup.get("hra"),
+                breakup.get("conveyanceAllowance"),
+                breakup.get("medicalAllowance"),
+                breakup.get("specialAllowance"),
+                breakup.get("grossSalary"),
+                breakup.get("ctc")
+        );
+        EmployeeResponse employee = employeeService.createEmployee(employeeRequest);
+
+        candidate.setStatus(Candidate.Status.SELECTED);
+        candidate.setOfferedCtc(request.offeredCtc());
+        candidate.setOfferedDesignation(designation);
+        candidate.setOfferedDepartment(department);
+        candidate.setOfferedDateOfJoining(request.dateOfJoining());
+        candidate.setConvertedEmployeeId(employee.employeeId());
+        candidateRepository.save(candidate);
+
+        emailService.sendOfferLetterEmail(
+                candidate.getEmail(),
+                candidate.getFirstName() + " " + candidate.getLastName(),
+                employee.employeeId(),
+                employee.designationTitle(),
+                request.offeredCtc(),
+                breakup,
+                request.dateOfJoining()
+        );
+
+        return new SelectCandidateResponse(
+                candidate.getId(),
+                employee.employeeId(),
+                candidate.getFirstName() + " " + candidate.getLastName(),
+                candidate.getEmail(),
+                breakup,
+                true
+        );
+    }
+
     // ─── Interviews ───
 
     public InterviewResponse scheduleInterview(InterviewRequest request) {
@@ -249,6 +328,13 @@ public class RecruitmentService {
             r.setJobPostingId(c.getJobPosting().getId());
             r.setJobPostingTitle(c.getJobPosting().getTitle());
         }
+        r.setOfferedCtc(c.getOfferedCtc());
+        if (c.getOfferedDesignation() != null) {
+            r.setOfferedDesignationId(c.getOfferedDesignation().getId());
+            r.setOfferedDesignationTitle(c.getOfferedDesignation().getTitle());
+        }
+        r.setOfferedDateOfJoining(c.getOfferedDateOfJoining());
+        r.setConvertedEmployeeId(c.getConvertedEmployeeId());
         r.setCreatedAt(c.getCreatedAt());
         r.setUpdatedAt(c.getUpdatedAt());
         return r;
