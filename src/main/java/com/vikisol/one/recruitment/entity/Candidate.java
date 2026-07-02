@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Table(name = "candidates")
@@ -65,12 +66,23 @@ public class Candidate extends BaseEntity {
 
     private String convertedEmployeeId;
 
+    // Set when a manager sends a recruiter's offer proposal back for changes
+    @Column(columnDefinition = "TEXT")
+    private String managerRemarks;
+
+    private UUID proposedById;
+
     public enum Source {
         PORTAL, REFERRAL, AGENCY, DIRECT, LINKEDIN
     }
 
     public enum Status {
         NEW, SCREENING, SHORTLISTED, INTERVIEW_SCHEDULED, INTERVIEWED,
+        // A recruiter proposed CTC/designation/department and is waiting on manager sign-off.
+        PENDING_APPROVAL,
+        // A manager sent the proposal back to the recruiter with remarks to fix.
+        REVISION_REQUESTED,
+        // Manager-approved: employee record created and offer letter emailed.
         SELECTED, OFFER_MADE, OFFER_ACCEPTED, OFFER_DECLINED, JOINED, REJECTED
     }
 }

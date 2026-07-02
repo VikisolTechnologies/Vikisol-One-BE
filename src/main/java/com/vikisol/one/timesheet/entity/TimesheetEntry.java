@@ -7,6 +7,7 @@ import com.vikisol.one.project.entity.Task;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.UUID;
 
 @Entity
@@ -35,6 +36,17 @@ public class TimesheetEntry extends BaseEntity {
 
     private String description;
 
+    private LocalTime checkInTime;
+
+    private LocalTime checkOutTime;
+
+    @Column(columnDefinition = "TEXT")
+    private String reason;
+
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private WorkLocation workLocation = WorkLocation.OFFICE;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Status status = Status.DRAFT;
@@ -42,4 +54,6 @@ public class TimesheetEntry extends BaseEntity {
     private UUID approvedById;
 
     public enum Status { DRAFT, SUBMITTED, APPROVED, REJECTED }
+
+    public enum WorkLocation { OFFICE, REMOTE, CLIENT_LOCATION }
 }

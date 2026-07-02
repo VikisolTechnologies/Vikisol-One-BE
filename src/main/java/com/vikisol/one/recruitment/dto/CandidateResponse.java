@@ -29,8 +29,11 @@ public class CandidateResponse {
     private BigDecimal offeredCtc;
     private UUID offeredDesignationId;
     private String offeredDesignationTitle;
+    private UUID offeredDepartmentId;
+    private String offeredDepartmentName;
     private java.time.LocalDate offeredDateOfJoining;
     private String convertedEmployeeId;
+    private String managerRemarks;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

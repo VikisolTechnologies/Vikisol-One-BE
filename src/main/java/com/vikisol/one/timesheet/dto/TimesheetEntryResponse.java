@@ -1,6 +1,7 @@
 package com.vikisol.one.timesheet.dto;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.UUID;
 
 public record TimesheetEntryResponse(
@@ -8,5 +9,6 @@ public record TimesheetEntryResponse(
         UUID projectId, String projectName,
         UUID taskId, String taskTitle,
         LocalDate date, Double hours, String description,
+        LocalTime checkInTime, LocalTime checkOutTime, String reason, String workLocation,
         String status, UUID approvedById
 ) {}

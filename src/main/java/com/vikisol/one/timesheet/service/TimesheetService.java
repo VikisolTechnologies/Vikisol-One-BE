@@ -50,10 +50,27 @@ public class TimesheetService {
         entry.setProject(project);
         entry.setTask(task);
         entry.setDate(request.date());
-        entry.setHours(request.hours());
+        entry.setHours(resolveHours(request));
         entry.setDescription(request.description());
+        entry.setCheckInTime(request.checkInTime());
+        entry.setCheckOutTime(request.checkOutTime());
+        entry.setReason(request.reason());
+        if (request.workLocation() != null) entry.setWorkLocation(request.workLocation());
         entry.setStatus(TimesheetEntry.Status.DRAFT);
         return mapResponse(entryRepository.save(entry));
+    }
+
+    /** Prefers computing hours worked from punch in/out; falls back to a manually entered value. */
+    private Double resolveHours(TimesheetEntryRequest request) {
+        if (request.checkInTime() != null && request.checkOutTime() != null) {
+            double hrs = java.time.Duration.between(request.checkInTime(), request.checkOutTime()).toMinutes() / 60.0;
+            if (hrs < 0) throw new BadRequestException("Punch out time must be after punch in time");
+            return Math.round(hrs * 100.0) / 100.0;
+        }
+        if (request.hours() == null) {
+            throw new BadRequestException("Provide either punch in/out times or hours worked");
+        }
+        return request.hours();
     }
 
     public TimesheetEntryResponse updateEntry(UUID id, TimesheetEntryRequest request, UserPrincipal principal) {
@@ -62,9 +79,13 @@ public class TimesheetService {
         if (entry.getStatus() != TimesheetEntry.Status.DRAFT && entry.getStatus() != TimesheetEntry.Status.REJECTED) {
             throw new BadRequestException("Cannot edit submitted/approved entries");
         }
-        entry.setHours(request.hours());
+        entry.setHours(resolveHours(request));
         entry.setDescription(request.description());
         entry.setDate(request.date());
+        entry.setCheckInTime(request.checkInTime());
+        entry.setCheckOutTime(request.checkOutTime());
+        entry.setReason(request.reason());
+        if (request.workLocation() != null) entry.setWorkLocation(request.workLocation());
         return mapResponse(entryRepository.save(entry));
     }
 
@@ -152,6 +173,8 @@ public class TimesheetService {
                 e.getTask() != null ? e.getTask().getId() : null,
                 e.getTask() != null ? e.getTask().getTitle() : null,
                 e.getDate(), e.getHours(), e.getDescription(),
+                e.getCheckInTime(), e.getCheckOutTime(), e.getReason(),
+                e.getWorkLocation() != null ? e.getWorkLocation().name() : null,
                 e.getStatus().name(), e.getApprovedById()
         );
     }

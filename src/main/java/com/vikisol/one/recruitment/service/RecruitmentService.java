@@ -6,7 +6,10 @@ import com.vikisol.one.designation.entity.Designation;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.entity.Employee;
+import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.employee.service.EmployeeService;
+import com.vikisol.one.notification.entity.Notification;
+import com.vikisol.one.notification.service.NotificationService;
 import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.recruitment.dto.*;
 import com.vikisol.one.recruitment.entity.Candidate;
@@ -15,6 +18,7 @@ import com.vikisol.one.recruitment.entity.JobPosting;
 import com.vikisol.one.recruitment.repository.CandidateRepository;
 import com.vikisol.one.recruitment.repository.InterviewRepository;
 import com.vikisol.one.recruitment.repository.JobPostingRepository;
+import com.vikisol.one.security.service.UserPrincipal;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -39,8 +43,10 @@ public class RecruitmentService {
     private final InterviewRepository interviewRepository;
     private final EntityManager entityManager;
     private final EmployeeService employeeService;
+    private final EmployeeRepository employeeRepository;
     private final PayrollService payrollService;
     private final EmailService emailService;
+    private final NotificationService notificationService;
 
     // ─── Job Postings ───
 
@@ -173,17 +179,47 @@ public class RecruitmentService {
     }
 
     /**
-     * Marks a candidate as SELECTED, generates their employee record + employee ID using the
-     * CEO-defined standard CTC breakup, and emails the offer/congratulations letter.
+     * A recruiter proposes CTC/designation/department/joining date for a candidate. This does NOT
+     * create an employee or send an offer letter - recruiters can only propose, a manager has to
+     * approve before anything goes out. Re-calling this (e.g. after a REVISION_REQUESTED) resets
+     * the proposal and clears any manager remarks.
      */
-    public SelectCandidateResponse selectCandidate(UUID id, SelectCandidateRequest request) {
+    public CandidateResponse proposeSelection(UUID id, SelectCandidateRequest request, UserPrincipal principal) {
         Candidate candidate = candidateRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
 
         Designation designation = entityManager.getReference(Designation.class, request.designationId());
         Department department = entityManager.getReference(Department.class, request.departmentId());
+        Employee proposer = employeeRepository.findByUserId(principal.getId()).orElse(null);
 
-        Map<String, BigDecimal> breakup = payrollService.computeCtcBreakup(request.offeredCtc());
+        candidate.setStatus(Candidate.Status.PENDING_APPROVAL);
+        candidate.setOfferedCtc(request.offeredCtc());
+        candidate.setOfferedDesignation(designation);
+        candidate.setOfferedDepartment(department);
+        candidate.setOfferedDateOfJoining(request.dateOfJoining());
+        candidate.setManagerRemarks(null);
+        if (proposer != null) candidate.setProposedById(proposer.getId());
+        candidateRepository.save(candidate);
+
+        return mapCandidate(candidate);
+    }
+
+    /**
+     * Manager approval: generates the employee record + employee ID using the CEO-defined standard
+     * CTC breakup, and emails the offer/congratulations letter. Only valid on a candidate the
+     * recruiter has already proposed terms for.
+     */
+    public SelectCandidateResponse approveSelection(UUID id) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        if (candidate.getStatus() != Candidate.Status.PENDING_APPROVAL) {
+            throw new IllegalStateException("This candidate has no pending offer proposal to approve");
+        }
+        if (candidate.getOfferedCtc() == null || candidate.getOfferedDesignation() == null || candidate.getOfferedDepartment() == null) {
+            throw new IllegalStateException("The offer proposal is incomplete");
+        }
+
+        Map<String, BigDecimal> breakup = payrollService.computeCtcBreakup(candidate.getOfferedCtc());
 
         EmployeeRequest employeeRequest = new EmployeeRequest(
                 null,
@@ -193,9 +229,9 @@ public class RecruitmentService {
                 candidate.getPhone(),
                 null,
                 null,
-                request.departmentId(),
-                request.designationId(),
-                request.dateOfJoining(),
+                candidate.getOfferedDepartment().getId(),
+                candidate.getOfferedDesignation().getId(),
+                candidate.getOfferedDateOfJoining(),
                 null, null, null,
                 Employee.EmploymentType.FULL_TIME,
                 Employee.EmploymentStatus.ACTIVE,
@@ -213,11 +249,8 @@ public class RecruitmentService {
         EmployeeResponse employee = employeeService.createEmployee(employeeRequest);
 
         candidate.setStatus(Candidate.Status.SELECTED);
-        candidate.setOfferedCtc(request.offeredCtc());
-        candidate.setOfferedDesignation(designation);
-        candidate.setOfferedDepartment(department);
-        candidate.setOfferedDateOfJoining(request.dateOfJoining());
         candidate.setConvertedEmployeeId(employee.employeeId());
+        candidate.setManagerRemarks(null);
         candidateRepository.save(candidate);
 
         emailService.sendOfferLetterEmail(
@@ -225,9 +258,9 @@ public class RecruitmentService {
                 candidate.getFirstName() + " " + candidate.getLastName(),
                 employee.employeeId(),
                 employee.designationTitle(),
-                request.offeredCtc(),
+                candidate.getOfferedCtc(),
                 breakup,
-                request.dateOfJoining()
+                candidate.getOfferedDateOfJoining()
         );
 
         return new SelectCandidateResponse(
@@ -238,6 +271,47 @@ public class RecruitmentService {
                 breakup,
                 true
         );
+    }
+
+    /**
+     * Manager sends a proposal back to the recruiter with remarks (e.g. CTC too high). Notifies
+     * the recruiter in-app and by email so they know to revise and resubmit.
+     */
+    public CandidateResponse requestRevision(UUID id, String remarks) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        if (candidate.getStatus() != Candidate.Status.PENDING_APPROVAL) {
+            throw new IllegalStateException("This candidate has no pending offer proposal to send back");
+        }
+        candidate.setStatus(Candidate.Status.REVISION_REQUESTED);
+        candidate.setManagerRemarks(remarks);
+        candidateRepository.save(candidate);
+
+        if (candidate.getProposedById() != null) {
+            employeeRepository.findById(candidate.getProposedById()).ifPresent(recruiter -> {
+                String candidateName = candidate.getFirstName() + " " + candidate.getLastName();
+                if (recruiter.getUser() != null) {
+                    notificationService.sendNotification(
+                            recruiter.getUser().getId(),
+                            "Offer Proposal Needs Changes",
+                            "Your offer proposal for " + candidateName + " was sent back: " + remarks,
+                            Notification.NotificationType.RECRUITMENT,
+                            candidate.getId(),
+                            "CANDIDATE"
+                    );
+                }
+                if (recruiter.getEmail() != null) {
+                    emailService.sendEmail(
+                            recruiter.getEmail(),
+                            "Offer Proposal Needs Changes - " + candidateName,
+                            "The manager reviewed your offer proposal for " + candidateName + " and sent it back with these remarks:\n\n"
+                                    + remarks + "\n\nPlease revise the CTC/designation/department and resubmit for approval.\n\nRegards,\nVikisol One"
+                    );
+                }
+            });
+        }
+
+        return mapCandidate(candidate);
     }
 
     // ─── Interviews ───
@@ -333,8 +407,13 @@ public class RecruitmentService {
             r.setOfferedDesignationId(c.getOfferedDesignation().getId());
             r.setOfferedDesignationTitle(c.getOfferedDesignation().getTitle());
         }
+        if (c.getOfferedDepartment() != null) {
+            r.setOfferedDepartmentId(c.getOfferedDepartment().getId());
+            r.setOfferedDepartmentName(c.getOfferedDepartment().getName());
+        }
         r.setOfferedDateOfJoining(c.getOfferedDateOfJoining());
         r.setConvertedEmployeeId(c.getConvertedEmployeeId());
+        r.setManagerRemarks(c.getManagerRemarks());
         r.setCreatedAt(c.getCreatedAt());
         r.setUpdatedAt(c.getUpdatedAt());
         return r;

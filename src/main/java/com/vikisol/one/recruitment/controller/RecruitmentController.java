@@ -112,14 +112,32 @@ public class RecruitmentController {
                 recruitmentService.updateCandidateStatus(id, status)));
     }
 
-    // Marks the candidate SELECTED, generates their employee ID using the CEO's standard CTC
-    // breakup, and emails the offer/congratulations letter.
-    @PostMapping("/candidates/{id}/select")
+    // Recruiter proposes CTC/designation/department/joining date. Does NOT send an offer - a
+    // manager has to approve first. Also used by the recruiter to resubmit after a revision request.
+    @PostMapping("/candidates/{id}/propose-selection")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
-    public ResponseEntity<ApiResponse<SelectCandidateResponse>> selectCandidate(
-            @PathVariable UUID id, @Valid @RequestBody SelectCandidateRequest request) {
-        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate selected and offer sent",
-                recruitmentService.selectCandidate(id, request)));
+    public ResponseEntity<ApiResponse<CandidateResponse>> proposeSelection(
+            @PathVariable UUID id, @Valid @RequestBody SelectCandidateRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Offer proposal submitted for manager approval",
+                recruitmentService.proposeSelection(id, request, principal)));
+    }
+
+    // Manager approves a recruiter's proposal: generates the employee ID and emails the offer letter.
+    @PostMapping("/candidates/{id}/approve-selection")
+    @PreAuthorize("hasAnyRole('MANAGER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<SelectCandidateResponse>> approveSelection(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate approved and offer sent",
+                recruitmentService.approveSelection(id)));
+    }
+
+    // Manager sends the proposal back to the recruiter with remarks (e.g. CTC too high).
+    @PostMapping("/candidates/{id}/request-revision")
+    @PreAuthorize("hasAnyRole('MANAGER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<CandidateResponse>> requestRevision(
+            @PathVariable UUID id, @RequestBody RevisionRequest request) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Revision requested and recruiter notified",
+                recruitmentService.requestRevision(id, request.remarks())));
     }
 
     // ─── Interviews ───
