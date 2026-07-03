@@ -1,5 +1,6 @@
 package com.vikisol.one.leave.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
@@ -32,6 +33,7 @@ public class LeaveService {
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveRequestRepository leaveRequestRepository;
     private final EmployeeRepository employeeRepository;
+    private final AuditService auditService;
 
     public LeaveTypeResponse createLeaveType(LeaveTypeRequest request) {
         LeaveType leaveType = LeaveType.builder()
@@ -173,6 +175,9 @@ public class LeaveService {
         }
 
         leaveRequest = leaveRequestRepository.save(leaveRequest);
+        auditService.record("Leave " + leaveRequest.getStatus(), leaveRequest.getEmployee().getEmployeeId(),
+                leaveRequest.getEmployee().getFirstName() + " " + leaveRequest.getEmployee().getLastName()
+                        + "'s " + leaveRequest.getLeaveType().getName() + " request (" + leaveRequest.getNumberOfDays() + " days)");
         return mapToLeaveRequestResponse(leaveRequest);
     }
 

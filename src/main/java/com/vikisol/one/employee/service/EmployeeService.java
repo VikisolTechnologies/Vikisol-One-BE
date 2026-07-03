@@ -1,5 +1,6 @@
 package com.vikisol.one.employee.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.department.entity.Department;
@@ -44,6 +45,7 @@ public class EmployeeService {
     private final PayrollService payrollService;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -145,6 +147,8 @@ public class EmployeeService {
                 .build();
 
         employee = employeeRepository.save(employee);
+        auditService.record("Employee Created", nextEmployeeId,
+                employee.getFirstName() + " " + employee.getLastName() + " (" + employee.getEmail() + ")");
         return toResponse(employee);
     }
 
@@ -272,6 +276,8 @@ public class EmployeeService {
         user.setPassword(passwordEncoder.encode(tempPassword));
         userRepository.save(user);
         emailService.sendPasswordResetEmail(user.getEmail(), employee.getFirstName() + " " + employee.getLastName(), tempPassword);
+        auditService.record("Password Reset", employee.getEmployeeId(),
+                "Password reset for " + employee.getFirstName() + " " + employee.getLastName());
     }
 
     public List<ManagerOptionResponse> getManagerOptions() {
@@ -329,6 +335,9 @@ public class EmployeeService {
                 request.reason()
         );
 
+        auditService.record("Salary Updated", employee.getEmployeeId(),
+                employee.getFirstName() + " " + employee.getLastName() + ": " + oldCtc + " -> " + request.newAnnualCtc());
+
         return toResponse(employee);
     }
 
@@ -364,8 +373,11 @@ public class EmployeeService {
             throw new RuntimeException("This employee has no login account to change the role of");
         }
         User user = employee.getUser();
+        RoleEnum oldRole = user.getRole();
         user.setRole(newRole);
         userRepository.save(user);
+        auditService.record("Role Changed", employee.getEmployeeId(),
+                employee.getFirstName() + " " + employee.getLastName() + ": " + oldRole + " -> " + newRole);
         return toResponse(employee);
     }
 

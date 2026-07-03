@@ -1,5 +1,6 @@
 package com.vikisol.one.document.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.document.dto.DocumentResponse;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
@@ -21,6 +22,7 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final EmployeeRepository employeeRepository;
+    private final AuditService auditService;
 
     public DocumentResponse uploadDocument(DocumentUploadRequest request) {
         Employee employee = employeeRepository.findById(request.employeeId())
@@ -77,6 +79,8 @@ public class DocumentService {
                 .orElseThrow(() -> new RuntimeException("Document not found with id: " + id));
         document.setActive(false);
         documentRepository.save(document);
+        auditService.record("Document Deleted", document.getTitle(),
+                "Belonging to " + document.getEmployee().getFirstName() + " " + document.getEmployee().getLastName());
     }
 
     private DocumentResponse toResponse(Document document) {

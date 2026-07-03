@@ -1,5 +1,6 @@
 package com.vikisol.one.payroll.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
@@ -37,6 +38,7 @@ public class PayrollService {
     private final PayslipRepository payslipRepository;
     private final SalaryAdvanceRepository salaryAdvanceRepository;
     private final EmployeeRepository employeeRepository;
+    private final AuditService auditService;
 
     // ── Config ──────────────────────────────────────────────────────────────
 
@@ -266,6 +268,9 @@ public class PayrollService {
         }
 
         payslipRepository.saveAll(payslips);
+
+        auditService.record("Payroll Generated", month + "/" + year,
+                payslips.size() + " payslips generated");
 
         return buildSummary(month, year, payslips);
     }

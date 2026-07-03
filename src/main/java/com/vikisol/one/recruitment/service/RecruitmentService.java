@@ -1,5 +1,6 @@
 package com.vikisol.one.recruitment.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.common.service.FileStorageService;
 import com.vikisol.one.common.service.PdfService;
@@ -56,6 +57,7 @@ public class RecruitmentService {
     private final PdfService pdfService;
     private final FileStorageService fileStorageService;
     private final DocumentService documentService;
+    private final AuditService auditService;
     private final NotificationService notificationService;
 
     // ─── Job Postings ───
@@ -315,6 +317,9 @@ public class RecruitmentService {
                 reportingManagerName,
                 offerLetterPdf
         );
+
+        auditService.record("Offer Approved", employee.employeeId(),
+                candidateFullName + " (" + candidate.getEmail() + "), CTC " + candidate.getOfferedCtc());
 
         return new SelectCandidateResponse(
                 candidate.getId(),

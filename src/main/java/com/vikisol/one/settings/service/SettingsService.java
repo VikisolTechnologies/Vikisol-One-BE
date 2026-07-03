@@ -1,5 +1,6 @@
 package com.vikisol.one.settings.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.settings.dto.*;
 import com.vikisol.one.settings.entity.CompanySettings;
 import com.vikisol.one.settings.entity.Holiday;
@@ -19,6 +20,7 @@ public class SettingsService {
 
     private final CompanySettingsRepository settingsRepository;
     private final HolidayRepository holidayRepository;
+    private final AuditService auditService;
 
     // Company Settings
 
@@ -50,7 +52,9 @@ public class SettingsService {
             settings.setCategory(request.category());
         }
 
-        return toSettingsResponse(settingsRepository.save(settings));
+        CompanySettingsResponse response = toSettingsResponse(settingsRepository.save(settings));
+        auditService.record("Settings Changed", request.key(), "New value: " + request.value());
+        return response;
     }
 
     // Holidays
