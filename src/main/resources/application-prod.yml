@@ -34,6 +34,8 @@ resend:
   from: ${RESEND_FROM:Vikisol One <careers@vikisol.in>}
 
 app:
+  logo-url: ${LOGO_URL:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}
+
   file:
     upload-dir: ${UPLOAD_DIR:/tmp/vikisol-uploads}
 
