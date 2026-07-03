@@ -33,4 +33,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     long countByDepartmentId(UUID departmentId);
 
     long countByEmploymentStatus(Employee.EmploymentStatus status);
+
+    @Query("SELECT e FROM Employee e WHERE e.isActive = true AND e.user IS NOT NULL AND e.user.role IN ('MANAGER','HR_MANAGER','CEO','ADMIN')")
+    List<Employee> findAllManagers();
 }

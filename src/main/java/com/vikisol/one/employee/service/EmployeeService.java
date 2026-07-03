@@ -10,6 +10,7 @@ import com.vikisol.one.employee.dto.EmployeeListResponse;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.dto.HikeRequest;
+import com.vikisol.one.employee.dto.ManagerOptionResponse;
 import com.vikisol.one.employee.dto.OnboardingChecklistRequest;
 import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.entity.Employee;
@@ -226,6 +227,15 @@ public class EmployeeService {
     public List<EmployeeListResponse> getByReportingManager(UUID managerId) {
         return employeeRepository.findByReportingManagerId(managerId).stream()
                 .map(this::toListResponse)
+                .toList();
+    }
+
+    public List<ManagerOptionResponse> getManagerOptions() {
+        return employeeRepository.findAllManagers().stream()
+                .map(e -> new ManagerOptionResponse(
+                        e.getId(),
+                        e.getFirstName() + " " + e.getLastName(),
+                        e.getDesignation() != null ? e.getDesignation().getTitle() : null))
                 .toList();
     }
 

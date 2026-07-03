@@ -8,6 +8,7 @@ public record SelectCandidateRequest(
         UUID designationId,
         UUID departmentId,
         BigDecimal offeredCtc,
-        LocalDate dateOfJoining
+        LocalDate dateOfJoining,
+        UUID reportingManagerId
 ) {
 }

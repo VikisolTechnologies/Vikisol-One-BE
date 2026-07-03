@@ -167,7 +167,18 @@ public class RecruitmentService {
         return candidateRepository.findAll(pageable).map(this::mapCandidate);
     }
 
-    public CandidateResponse updateCandidateStatus(UUID id, Candidate.Status status) {
+    // Statuses that are only reachable via the propose/approve/revision endpoints (which enforce the
+    // recruiter-proposes/manager-approves workflow and side effects like emailing the offer). Blocking
+    // them here prevents a recruiter from using this generic endpoint to bypass manager approval.
+    private static final java.util.Set<Candidate.Status> APPROVAL_GATED_STATUSES = java.util.Set.of(
+            Candidate.Status.PENDING_APPROVAL, Candidate.Status.REVISION_REQUESTED,
+            Candidate.Status.SELECTED, Candidate.Status.OFFER_MADE,
+            Candidate.Status.OFFER_ACCEPTED, Candidate.Status.JOINED);
+
+    public CandidateResponse updateCandidateStatus(UUID id, Candidate.Status status, boolean isRecruiter) {
+        if (isRecruiter && APPROVAL_GATED_STATUSES.contains(status)) {
+            throw new IllegalArgumentException("Recruiters cannot set this status directly - use the propose/approve workflow");
+        }
         Candidate candidate = candidateRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
         candidate.setStatus(status);
@@ -197,6 +208,7 @@ public class RecruitmentService {
         candidate.setOfferedDesignation(designation);
         candidate.setOfferedDepartment(department);
         candidate.setOfferedDateOfJoining(request.dateOfJoining());
+        candidate.setOfferedReportingManagerId(request.reportingManagerId());
         candidate.setManagerRemarks(null);
         if (proposer != null) candidate.setProposedById(proposer.getId());
         candidateRepository.save(candidate);
@@ -232,7 +244,8 @@ public class RecruitmentService {
                 candidate.getOfferedDepartment().getId(),
                 candidate.getOfferedDesignation().getId(),
                 candidate.getOfferedDateOfJoining(),
-                null, null, null,
+                null, null,
+                candidate.getOfferedReportingManagerId(),
                 Employee.EmploymentType.FULL_TIME,
                 Employee.EmploymentStatus.ACTIVE,
                 null, null, null, null, null, null,
@@ -253,6 +266,12 @@ public class RecruitmentService {
         candidate.setManagerRemarks(null);
         candidateRepository.save(candidate);
 
+        String reportingManagerName = candidate.getOfferedReportingManagerId() != null
+                ? employeeRepository.findById(candidate.getOfferedReportingManagerId())
+                        .map(m -> m.getFirstName() + " " + m.getLastName())
+                        .orElse(null)
+                : null;
+
         emailService.sendOfferLetterEmail(
                 candidate.getEmail(),
                 candidate.getFirstName() + " " + candidate.getLastName(),
@@ -260,7 +279,8 @@ public class RecruitmentService {
                 employee.designationTitle(),
                 candidate.getOfferedCtc(),
                 breakup,
-                candidate.getOfferedDateOfJoining()
+                candidate.getOfferedDateOfJoining(),
+                reportingManagerName
         );
 
         return new SelectCandidateResponse(
@@ -412,6 +432,7 @@ public class RecruitmentService {
             r.setOfferedDepartmentName(c.getOfferedDepartment().getName());
         }
         r.setOfferedDateOfJoining(c.getOfferedDateOfJoining());
+        r.setOfferedReportingManagerId(c.getOfferedReportingManagerId());
         r.setConvertedEmployeeId(c.getConvertedEmployeeId());
         r.setManagerRemarks(c.getManagerRemarks());
         r.setCreatedAt(c.getCreatedAt());

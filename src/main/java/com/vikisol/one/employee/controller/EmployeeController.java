@@ -92,6 +92,13 @@ public class EmployeeController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Search results", employees));
     }
 
+    // Lightweight manager list for dropdowns (e.g. recruiter selecting a reporting manager for an offer).
+    // Open to any authenticated role - unlike the full employee list, this doesn't expose sensitive data.
+    @GetMapping("/managers")
+    public ResponseEntity<ApiResponse<List<com.vikisol.one.employee.dto.ManagerOptionResponse>>> getManagerOptions() {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Manager options retrieved", employeeService.getManagerOptions()));
+    }
+
     @GetMapping("/reporting/{managerId}")
     public ResponseEntity<ApiResponse<List<EmployeeListResponse>>> getByReportingManager(@PathVariable UUID managerId) {
         List<EmployeeListResponse> employees = employeeService.getByReportingManager(managerId);

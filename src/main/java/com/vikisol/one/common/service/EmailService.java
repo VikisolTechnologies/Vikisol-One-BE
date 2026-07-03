@@ -152,7 +152,8 @@ public class EmailService {
     }
 
     public void sendOfferLetterEmail(String email, String candidateName, String employeeId, String designation,
-                                      BigDecimal annualCtc, Map<String, BigDecimal> ctcBreakup, LocalDate dateOfJoining) {
+                                      BigDecimal annualCtc, Map<String, BigDecimal> ctcBreakup, LocalDate dateOfJoining,
+                                      String reportingManagerName) {
         String subject = "Congratulations " + candidateName + " - Your Offer from Vikisol Technologies";
 
         StringBuilder breakupRows = new StringBuilder();
@@ -169,7 +170,9 @@ public class EmailService {
         String body =
                 "<h2 style=\"margin:0 0 4px;font-size:20px;\">Congratulations, " + candidateName + "! &#127881;</h2>"
                 + "<p style=\"margin:0 0 20px;color:#444;\">We are delighted to confirm that you have been selected to join <b>Vikisol Technologies Pvt Ltd</b>.</p>"
-                + "<p style=\"margin:0 0 20px;\">We are pleased to offer you the position of <b>" + designation + "</b>, reporting into the Vikisol leadership team, based on your experience and the discussions we've had with you.</p>"
+                + "<p style=\"margin:0 0 20px;\">We are pleased to offer you the position of <b>" + designation + "</b>"
+                + (reportingManagerName != null && !reportingManagerName.isBlank() ? ", reporting to <b>" + reportingManagerName + "</b>" : "")
+                + ", based on your experience and the discussions we've had with you.</p>"
                 + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
                 + rowHtml("Employee ID", employeeId)
                 + rowHtml("Designation", designation)

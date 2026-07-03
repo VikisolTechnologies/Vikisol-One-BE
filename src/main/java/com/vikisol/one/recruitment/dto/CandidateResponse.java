@@ -32,6 +32,7 @@ public class CandidateResponse {
     private UUID offeredDepartmentId;
     private String offeredDepartmentName;
     private java.time.LocalDate offeredDateOfJoining;
+    private UUID offeredReportingManagerId;
     private String convertedEmployeeId;
     private String managerRemarks;
     private LocalDateTime createdAt;

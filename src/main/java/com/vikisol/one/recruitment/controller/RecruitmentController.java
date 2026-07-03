@@ -107,9 +107,12 @@ public class RecruitmentController {
     @PutMapping("/candidates/{id}/status")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> updateCandidateStatus(
-            @PathVariable UUID id, @RequestParam Candidate.Status status) {
+            @PathVariable UUID id, @RequestParam Candidate.Status status,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        boolean isRecruiter = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_RECRUITER"));
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidate status updated",
-                recruitmentService.updateCandidateStatus(id, status)));
+                recruitmentService.updateCandidateStatus(id, status, isRecruiter)));
     }
 
     // Recruiter proposes CTC/designation/department/joining date. Does NOT send an offer - a

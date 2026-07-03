@@ -64,6 +64,9 @@ public class Candidate extends BaseEntity {
 
     private java.time.LocalDate offeredDateOfJoining;
 
+    // Recruiter-proposed reporting manager, carried through to the created Employee and shown in the offer letter.
+    private UUID offeredReportingManagerId;
+
     private String convertedEmployeeId;
 
     // Set when a manager sends a recruiter's offer proposal back for changes
