@@ -7,6 +7,7 @@ import com.vikisol.one.settings.dto.*;
 import com.vikisol.one.settings.entity.CompanySettings;
 import com.vikisol.one.settings.service.RolePermissionService;
 import com.vikisol.one.settings.service.SettingsService;
+import com.vikisol.one.common.service.EmailService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ public class SettingsController {
 
     private final SettingsService settingsService;
     private final RolePermissionService rolePermissionService;
+    private final EmailService emailService;
 
     // ── Role Permissions (CEO controls what each role can see) ───────────────
 
@@ -103,5 +105,17 @@ public class SettingsController {
     public ResponseEntity<ApiResponse<Void>> deleteHoliday(@PathVariable UUID id) {
         settingsService.deleteHoliday(id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Holiday deleted successfully", null));
+    }
+
+    // Diagnostic: sends a real test email via the configured SMTP mailbox and reports success/failure.
+    @PostMapping("/email/test")
+    @PreAuthorize("hasRole('CEO')")
+    public ResponseEntity<ApiResponse<String>> sendTestEmail(@RequestParam String to) {
+        try {
+            emailService.sendTestEmail(to);
+            return ResponseEntity.ok(new ApiResponse<>(true, "Test email sent to " + to, "SENT"));
+        } catch (Exception e) {
+            return ResponseEntity.ok(new ApiResponse<>(false, "Failed to send test email: " + e.getMessage(), null));
+        }
     }
 }

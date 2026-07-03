@@ -40,6 +40,17 @@ public class EmailService {
         }
     }
 
+    // Synchronous (not @Async) so callers get a real success/failure result back, for SMTP diagnostics.
+    public void sendTestEmail(String to) throws Exception {
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+        helper.setFrom(fromEmail);
+        helper.setTo(to);
+        helper.setSubject("Vikisol One - SMTP test");
+        helper.setText(brandedTemplate("SMTP connectivity test", "<p style=\"color:#333;font-size:14px;\">This is a test email confirming the careers@vikisol.in mailbox is correctly wired up to Vikisol One.</p>"), true);
+        mailSender.send(message);
+    }
+
     @Async
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
         try {
