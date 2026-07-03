@@ -86,11 +86,15 @@ public class TicketController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Ticket assigned successfully", response));
     }
 
+    // Previously had no restriction at all - any authenticated user could change the status of
+    // any ticket in the system, not just their own or one assigned to them. Now enforced in the
+    // service layer: only the raiser, the assignee, or ADMIN/HR_MANAGER can update status.
     @PutMapping("/{id}/status")
     public ResponseEntity<ApiResponse<TicketResponse>> updateStatus(
             @PathVariable UUID id,
-            @Valid @RequestBody TicketStatusUpdateRequest request) {
-        TicketResponse response = ticketService.updateStatus(id, request);
+            @Valid @RequestBody TicketStatusUpdateRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        TicketResponse response = ticketService.updateStatus(id, request, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Ticket status updated", response));
     }
 

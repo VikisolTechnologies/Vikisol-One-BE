@@ -67,9 +67,20 @@ public class TicketService {
     }
 
     @Transactional
-    public TicketResponse updateStatus(UUID ticketId, TicketStatusUpdateRequest request) {
+    public TicketResponse updateStatus(UUID ticketId, TicketStatusUpdateRequest request, UserPrincipal principal) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        boolean isStaff = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_HR_MANAGER"));
+        if (!isStaff) {
+            Employee caller = employeeRepository.findByUserId(principal.getId()).orElse(null);
+            boolean isRaiserOrAssignee = caller != null
+                    && (caller.getId().equals(ticket.getRaisedById()) || caller.getId().equals(ticket.getAssignedToId()));
+            if (!isRaiserOrAssignee) {
+                throw new RuntimeException("You can only update tickets you raised or are assigned to");
+            }
+        }
 
         ticket.setStatus(request.getStatus());
 

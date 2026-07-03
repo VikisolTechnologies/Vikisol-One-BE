@@ -59,7 +59,10 @@ public class DocumentController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Unverified documents retrieved successfully", documents));
     }
 
+    // Was reachable by any authenticated role (including a plain EMPLOYEE) with no restriction at
+    // all - anyone could delete anyone else's stored documents, including verified/legal ones.
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteDocument(@PathVariable UUID id) {
         documentService.deleteDocument(id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Document deleted successfully", null));
