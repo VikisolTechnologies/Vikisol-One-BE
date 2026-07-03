@@ -1,66 +1,85 @@
 package com.vikisol.one.common.service;
 
-import jakarta.mail.internet.MimeMessage;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
+// Railway (and most cloud hosts) block outbound SMTP ports, so raw SMTP to GoDaddy never connects.
+// Resend's HTTPS API sends from the same careers@vikisol.in mailbox without needing SMTP at all.
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private final ObjectMapper objectMapper;
 
-    @Value("${spring.mail.username:careers@vikisol.in}")
+    @Value("${resend.api-key:}")
+    private String resendApiKey;
+
+    @Value("${resend.from:Vikisol One <careers@vikisol.in>}")
     private String fromEmail;
+
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+
+    private void send(String to, String subject, String htmlBody) throws Exception {
+        if (resendApiKey == null || resendApiKey.isBlank()) {
+            throw new IllegalStateException("RESEND_API_KEY is not configured");
+        }
+        Map<String, Object> payload = Map.of(
+                "from", fromEmail,
+                "to", List.of(to),
+                "subject", subject,
+                "html", htmlBody);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.resend.com/emails"))
+                .timeout(Duration.ofSeconds(15))
+                .header("Authorization", "Bearer " + resendApiKey)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build();
+        HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 300) {
+            throw new RuntimeException("Resend API returned " + response.statusCode() + ": " + response.body());
+        }
+    }
 
     @Async
     public void sendEmail(String to, String subject, String body) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(to);
-            message.setSubject(subject);
-            message.setText(body);
-            mailSender.send(message);
+            send(to, subject, "<p style=\"white-space:pre-wrap;font-family:Segoe UI,Arial,sans-serif;\">" + body + "</p>");
             log.info("Email sent to {}: {}", to, subject);
         } catch (Exception e) {
             log.warn("Failed to send email to {}: {}", to, e.getMessage());
         }
     }
 
-    // Synchronous (not @Async) so callers get a real success/failure result back, for SMTP diagnostics.
+    // Synchronous (not @Async) so callers get a real success/failure result back, for email diagnostics.
     public void sendTestEmail(String to) throws Exception {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-        helper.setFrom(fromEmail);
-        helper.setTo(to);
-        helper.setSubject("Vikisol One - SMTP test");
-        helper.setText(brandedTemplate("SMTP connectivity test", "<p style=\"color:#333;font-size:14px;\">This is a test email confirming the careers@vikisol.in mailbox is correctly wired up to Vikisol One.</p>"), true);
-        mailSender.send(message);
+        send(to, "Vikisol One - Email delivery test",
+                brandedTemplate("Email connectivity test",
+                        "<p style=\"color:#333;font-size:14px;\">This is a test email confirming careers@vikisol.in is correctly wired up to Vikisol One via Resend.</p>"));
     }
 
     @Async
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-            helper.setFrom(fromEmail);
-            helper.setTo(to);
-            helper.setSubject(subject);
-            helper.setText(htmlBody, true);
-            mailSender.send(message);
+            send(to, subject, htmlBody);
             log.info("HTML email sent to {}: {}", to, subject);
         } catch (Exception e) {
             log.warn("Failed to send HTML email to {}: {}", to, e.getMessage());
