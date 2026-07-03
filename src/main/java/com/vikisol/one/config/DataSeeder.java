@@ -17,6 +17,8 @@ import com.vikisol.one.settings.entity.Holiday;
 import com.vikisol.one.settings.repository.HolidayRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -39,9 +41,18 @@ public class DataSeeder implements CommandLineRunner {
     private final PayrollConfigRepository payrollConfigRepository;
     private final HolidayRepository holidayRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EntityManager entityManager;
 
     @Override
+    @Transactional
     public void run(String... args) {
+        // Hibernate 6 auto-generates a CHECK constraint on @Enumerated(STRING) columns matching the
+        // enum values at the time the column was first created, but ddl-auto=update never refreshes
+        // that constraint when new enum values are added later - so old constraints silently start
+        // rejecting valid new statuses (e.g. Candidate.Status.PENDING_APPROVAL). Drop and let Hibernate
+        // recreate them fresh against the current enum on next schema validation.
+        dropStaleCheckConstraint("candidates", "candidates_status_check");
+
         if (userRepository.count() == 0) {
             log.info("Seeding initial data...");
             seedUsers();
@@ -56,6 +67,16 @@ public class DataSeeder implements CommandLineRunner {
         }
         // Always run — idempotent, links any user that lacks an Employee record
         seedEmployeesForUsers();
+    }
+
+    private void dropStaleCheckConstraint(String table, String constraintName) {
+        try {
+            entityManager.createNativeQuery(
+                    "ALTER TABLE " + table + " DROP CONSTRAINT IF EXISTS " + constraintName)
+                    .executeUpdate();
+        } catch (Exception e) {
+            log.warn("Could not drop constraint {} on {}: {}", constraintName, table, e.getMessage());
+        }
     }
 
     private void seedUsers() {
