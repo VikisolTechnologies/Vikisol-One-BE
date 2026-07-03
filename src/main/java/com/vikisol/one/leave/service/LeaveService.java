@@ -140,6 +140,7 @@ public class LeaveService {
                 .build();
 
         leaveRequest = leaveRequestRepository.save(leaveRequest);
+        UUID leaveRequestId = leaveRequest.getId();
 
         // Found missing via live workflow verification - no notification existed anywhere in the
         // leave module. Notify the reporting manager that a request is waiting on them.
@@ -152,7 +153,7 @@ public class LeaveService {
                             employee.getFirstName() + " " + employee.getLastName() + " applied for " + leaveType.getName()
                                     + " (" + numberOfDays + " day(s)) from " + request.startDate() + " to " + request.endDate(),
                             Notification.NotificationType.LEAVE,
-                            leaveRequest.getId(),
+                            leaveRequestId,
                             "LEAVE_REQUEST"
                     );
                 }
