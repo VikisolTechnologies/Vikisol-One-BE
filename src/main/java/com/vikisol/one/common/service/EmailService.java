@@ -247,7 +247,7 @@ public class EmailService {
                 + "<body style=\"margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;\">"
                 + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#0a0a0a;padding:24px 40px;\">"
                 + "<img src=\"" + logoUrl + "\" alt=\"Vikisol\" style=\"height:34px;\"/>"
-                + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &bull; TALENT &bull; TRANSFORMATION</div>"
+                + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &#8226; TALENT &#8226; TRANSFORMATION</div>"
                 + "</td></tr></table>"
                 + "<div style=\"padding:36px 40px;\">"
                 + "<h1 style=\"font-size:18px;letter-spacing:1px;text-align:center;margin:0 0 4px;\">OFFER OF EMPLOYMENT</h1>"
@@ -282,7 +282,7 @@ public class EmailService {
                 + "</table>"
                 + "</div>"
                 + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#f4f4f5;padding:16px 40px;color:#888;font-size:9px;text-align:center;\">"
-                + "Vikisol Technologies Pvt Ltd &middot; " + supportEmail + " &middot; www.vikisol.in"
+                + "Vikisol Technologies Pvt Ltd &#183; " + supportEmail + " &#183; www.vikisol.in"
                 + "</td></tr></table>"
                 + "</body></html>";
     }
