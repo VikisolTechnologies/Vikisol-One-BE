@@ -33,6 +33,11 @@ public class EmailService {
     @Value("${resend.from:Vikisol One <careers@vikisol.in>}")
     private String fromEmail;
 
+    // Resend never touches the actual careers@vikisol.in mailbox, so nothing shows in its Sent folder.
+    // BCC'ing the mailbox on every send gives a record there (in Inbox, not Sent, but visible).
+    @Value("${resend.bcc:careers@vikisol.in}")
+    private String bccEmail;
+
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -41,11 +46,14 @@ public class EmailService {
         if (resendApiKey == null || resendApiKey.isBlank()) {
             throw new IllegalStateException("RESEND_API_KEY is not configured");
         }
-        Map<String, Object> payload = Map.of(
+        Map<String, Object> payload = new java.util.HashMap<>(Map.of(
                 "from", fromEmail,
                 "to", List.of(to),
                 "subject", subject,
-                "html", htmlBody);
+                "html", htmlBody));
+        if (bccEmail != null && !bccEmail.isBlank()) {
+            payload.put("bcc", List.of(bccEmail));
+        }
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://api.resend.com/emails"))
                 .timeout(Duration.ofSeconds(15))
