@@ -11,6 +11,8 @@ import com.vikisol.one.leave.entity.LeaveType;
 import com.vikisol.one.leave.repository.LeaveBalanceRepository;
 import com.vikisol.one.leave.repository.LeaveRequestRepository;
 import com.vikisol.one.leave.repository.LeaveTypeRepository;
+import com.vikisol.one.notification.entity.Notification;
+import com.vikisol.one.notification.service.NotificationService;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -34,6 +36,7 @@ public class LeaveService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     public LeaveTypeResponse createLeaveType(LeaveTypeRequest request) {
         LeaveType leaveType = LeaveType.builder()
@@ -137,6 +140,25 @@ public class LeaveService {
                 .build();
 
         leaveRequest = leaveRequestRepository.save(leaveRequest);
+
+        // Found missing via live workflow verification - no notification existed anywhere in the
+        // leave module. Notify the reporting manager that a request is waiting on them.
+        if (employee.getReportingManagerId() != null) {
+            employeeRepository.findById(employee.getReportingManagerId()).ifPresent(manager -> {
+                if (manager.getUser() != null) {
+                    notificationService.sendNotification(
+                            manager.getUser().getId(),
+                            "Leave Request - " + employee.getFirstName() + " " + employee.getLastName(),
+                            employee.getFirstName() + " " + employee.getLastName() + " applied for " + leaveType.getName()
+                                    + " (" + numberOfDays + " day(s)) from " + request.startDate() + " to " + request.endDate(),
+                            Notification.NotificationType.LEAVE,
+                            leaveRequest.getId(),
+                            "LEAVE_REQUEST"
+                    );
+                }
+            });
+        }
+
         return mapToLeaveRequestResponse(leaveRequest);
     }
 
@@ -178,6 +200,20 @@ public class LeaveService {
         auditService.record("Leave " + leaveRequest.getStatus(), leaveRequest.getEmployee().getEmployeeId(),
                 leaveRequest.getEmployee().getFirstName() + " " + leaveRequest.getEmployee().getLastName()
                         + "'s " + leaveRequest.getLeaveType().getName() + " request (" + leaveRequest.getNumberOfDays() + " days)");
+
+        if (leaveRequest.getEmployee().getUser() != null) {
+            notificationService.sendNotification(
+                    leaveRequest.getEmployee().getUser().getId(),
+                    "Leave " + leaveRequest.getStatus().name().charAt(0) + leaveRequest.getStatus().name().substring(1).toLowerCase(),
+                    "Your " + leaveRequest.getLeaveType().getName() + " request for " + leaveRequest.getStartDate()
+                            + " to " + leaveRequest.getEndDate() + " was " + leaveRequest.getStatus().name().toLowerCase()
+                            + (request.comments() != null && !request.comments().isBlank() ? ": " + request.comments() : ""),
+                    Notification.NotificationType.LEAVE,
+                    leaveRequest.getId(),
+                    "LEAVE_REQUEST"
+            );
+        }
+
         return mapToLeaveRequestResponse(leaveRequest);
     }
 
@@ -278,6 +314,13 @@ public class LeaveService {
 
     private LeaveRequestResponse mapToLeaveRequestResponse(LeaveRequest lr) {
         Employee emp = lr.getEmployee();
+        // Found via live workflow verification: this was hardcoded null with a "would need to look
+        // up approver" comment, so the UI could never actually show who approved/rejected a request.
+        String approverName = lr.getApprovedById() != null
+                ? employeeRepository.findById(lr.getApprovedById())
+                        .map(a -> a.getFirstName() + " " + a.getLastName())
+                        .orElse(null)
+                : null;
         return new LeaveRequestResponse(
                 lr.getId(),
                 emp.getFirstName() + " " + emp.getLastName(),
@@ -288,7 +331,7 @@ public class LeaveService {
                 lr.getNumberOfDays(),
                 lr.getReason(),
                 lr.getStatus().name(),
-                null, // approverName - would need to look up approver
+                approverName,
                 lr.getApproverComments(),
                 lr.getAppliedOn(),
                 lr.isHalfDay()
