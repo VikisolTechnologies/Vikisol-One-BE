@@ -84,7 +84,7 @@ public class SettingsController {
     }
 
     @PostMapping("/holidays")
-    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN', 'CEO')")
     public ResponseEntity<ApiResponse<HolidayResponse>> createHoliday(
             @Valid @RequestBody HolidayRequest request) {
         HolidayResponse holiday = settingsService.createHoliday(request);
@@ -92,7 +92,7 @@ public class SettingsController {
     }
 
     @PutMapping("/holidays/{id}")
-    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN', 'CEO')")
     public ResponseEntity<ApiResponse<HolidayResponse>> updateHoliday(
             @PathVariable UUID id,
             @Valid @RequestBody HolidayRequest request) {
@@ -101,7 +101,7 @@ public class SettingsController {
     }
 
     @DeleteMapping("/holidays/{id}")
-    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN', 'CEO')")
     public ResponseEntity<ApiResponse<Void>> deleteHoliday(@PathVariable UUID id) {
         settingsService.deleteHoliday(id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Holiday deleted successfully", null));

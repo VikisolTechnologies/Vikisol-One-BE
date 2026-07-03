@@ -36,6 +36,22 @@ public class LeaveController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Leave types retrieved successfully", types));
     }
 
+    // CEO-configurable: adjust the annual quota (e.g. Casual/Earned/Sick/Comp days) for a leave type.
+    @PutMapping("/types/{id}")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN', 'CEO')")
+    public ResponseEntity<ApiResponse<LeaveTypeResponse>> updateLeaveType(
+            @PathVariable UUID id, @Valid @RequestBody LeaveTypeRequest request) {
+        LeaveTypeResponse response = leaveService.updateLeaveType(id, request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Leave type updated successfully", response));
+    }
+
+    @DeleteMapping("/types/{id}")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN', 'CEO')")
+    public ResponseEntity<ApiResponse<Void>> deleteLeaveType(@PathVariable UUID id) {
+        leaveService.deleteLeaveType(id);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Leave type deleted successfully", null));
+    }
+
     @PostMapping("/apply")
     public ResponseEntity<ApiResponse<LeaveRequestResponse>> applyLeave(
             @Valid @RequestBody LeaveApplyRequest request,

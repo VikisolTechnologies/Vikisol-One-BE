@@ -15,6 +15,7 @@ import com.vikisol.one.payroll.repository.PayrollConfigRepository;
 import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.settings.entity.Holiday;
 import com.vikisol.one.settings.repository.HolidayRepository;
+import com.vikisol.one.settings.repository.RolePermissionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.persistence.EntityManager;
@@ -40,6 +41,7 @@ public class DataSeeder implements CommandLineRunner {
     private final LeaveTypeRepository leaveTypeRepository;
     private final PayrollConfigRepository payrollConfigRepository;
     private final HolidayRepository holidayRepository;
+    private final RolePermissionRepository rolePermissionRepository;
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
 
@@ -52,6 +54,12 @@ public class DataSeeder implements CommandLineRunner {
         // rejecting valid new statuses (e.g. Candidate.Status.PENDING_APPROVAL). Drop and let Hibernate
         // recreate them fresh against the current enum on next schema validation.
         dropStaleCheckConstraint("candidates", "candidates_status_check");
+
+        // Managers were briefly granted the "new-hires" (offer approval) module - that's now HR-only.
+        // A stored override for any module on a role bypasses the whole DEFAULTS fallback, so this
+        // stale row must be removed explicitly rather than relying on the code default alone.
+        rolePermissionRepository.findByRoleAndModule(RoleEnum.MANAGER, "new-hires")
+                .ifPresent(rolePermissionRepository::delete);
 
         if (userRepository.count() == 0) {
             log.info("Seeding initial data...");

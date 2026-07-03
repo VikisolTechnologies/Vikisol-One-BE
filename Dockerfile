@@ -10,6 +10,9 @@ RUN ./mvnw package -DskipTests -q
 # ---- Run stage ----
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+# All attendance/timesheet timestamps use LocalDateTime.now(), which follows the JVM's default
+# timezone - Railway containers default to UTC, so punch times were off by +5:30 without this.
+ENV TZ=Asia/Kolkata
 RUN addgroup -S vikisol && adduser -S vikisol -G vikisol
 COPY --from=builder /app/target/*.jar app.jar
 COPY entrypoint.sh entrypoint.sh

@@ -31,7 +31,8 @@ public class RolePermissionService {
             RoleEnum.CEO, Set.copyOf(MODULES),
             RoleEnum.ADMIN, Set.of("dashboard", "employees", "recruitment", "new-hires", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "settings"),
             RoleEnum.HR_MANAGER, Set.of("dashboard", "employees", "recruitment", "new-hires", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "settings"),
-            RoleEnum.MANAGER, Set.of("dashboard", "employees", "new-hires", "projects", "resources", "timesheets", "leave", "attendance", "tickets", "performance", "org-chart", "reports"),
+            // Managers are operational leads, not part of hiring/compensation approval - "new-hires" belongs to HR only.
+            RoleEnum.MANAGER, Set.of("dashboard", "employees", "projects", "resources", "timesheets", "leave", "attendance", "tickets", "performance", "org-chart", "reports"),
             RoleEnum.EMPLOYEE, Set.of("dashboard", "projects", "timesheets", "leave", "attendance", "payroll", "tickets", "performance", "documents"),
             RoleEnum.RECRUITER, Set.of("dashboard", "recruitment", "reports"),
             RoleEnum.FINANCE, Set.of("dashboard", "payroll", "reports")

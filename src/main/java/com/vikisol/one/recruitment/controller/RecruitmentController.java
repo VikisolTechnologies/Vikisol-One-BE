@@ -68,14 +68,14 @@ public class RecruitmentController {
     // ─── Candidates ───
 
     @GetMapping("/candidates")
-    @PreAuthorize("hasAnyRole('RECRUITER','MANAGER','HR_MANAGER','CEO','ADMIN')")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<Page<CandidateResponse>>> getCandidates(Pageable pageable) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidates retrieved",
                 recruitmentService.getCandidates(pageable)));
     }
 
     @GetMapping("/candidates/{id}")
-    @PreAuthorize("hasAnyRole('RECRUITER','MANAGER','HR_MANAGER','CEO','ADMIN')")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> getCandidate(@PathVariable UUID id) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidate retrieved",
                 recruitmentService.getCandidate(id)));
@@ -115,8 +115,8 @@ public class RecruitmentController {
                 recruitmentService.updateCandidateStatus(id, status, isRecruiter)));
     }
 
-    // Recruiter proposes CTC/designation/department/joining date. Does NOT send an offer - a
-    // manager has to approve first. Also used by the recruiter to resubmit after a revision request.
+    // Recruiter proposes CTC/designation/department/joining date. Does NOT send an offer - HR
+    // has to approve first. Also used by the recruiter to resubmit after a revision request.
     @PostMapping("/candidates/{id}/propose-selection")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> proposeSelection(
@@ -126,17 +126,18 @@ public class RecruitmentController {
                 recruitmentService.proposeSelection(id, request, principal)));
     }
 
-    // Manager approves a recruiter's proposal: generates the employee ID and emails the offer letter.
+    // HR approves a recruiter's proposal: generates the employee ID and emails the offer letter.
+    // Managers are operational leads, not part of the hiring/compensation approval chain.
     @PostMapping("/candidates/{id}/approve-selection")
-    @PreAuthorize("hasAnyRole('MANAGER','HR_MANAGER','CEO','ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<SelectCandidateResponse>> approveSelection(@PathVariable UUID id) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidate approved and offer sent",
                 recruitmentService.approveSelection(id)));
     }
 
-    // Manager sends the proposal back to the recruiter with remarks (e.g. CTC too high).
+    // HR sends the proposal back to the recruiter with remarks (e.g. CTC too high).
     @PostMapping("/candidates/{id}/request-revision")
-    @PreAuthorize("hasAnyRole('MANAGER','HR_MANAGER','CEO','ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> requestRevision(
             @PathVariable UUID id, @RequestBody RevisionRequest request) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Revision requested and recruiter notified",

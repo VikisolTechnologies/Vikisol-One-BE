@@ -54,6 +54,25 @@ public class LeaveService {
                 .toList();
     }
 
+    // Lets the CEO adjust the annual quota (e.g. Casual/Earned/Sick/Comp days) for an existing leave type.
+    public LeaveTypeResponse updateLeaveType(UUID id, LeaveTypeRequest request) {
+        LeaveType leaveType = leaveTypeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Leave type not found"));
+        leaveType.setName(request.name());
+        leaveType.setCode(request.code());
+        leaveType.setDefaultDays(request.defaultDays());
+        leaveType.setCarryForward(request.carryForward());
+        leaveType.setMaxCarryForwardDays(request.maxCarryForwardDays());
+        return mapToLeaveTypeResponse(leaveTypeRepository.save(leaveType));
+    }
+
+    public void deleteLeaveType(UUID id) {
+        LeaveType leaveType = leaveTypeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Leave type not found"));
+        leaveType.setActive(false);
+        leaveTypeRepository.save(leaveType);
+    }
+
     public void initializeLeaveBalances(UUID employeeId, int year) {
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
