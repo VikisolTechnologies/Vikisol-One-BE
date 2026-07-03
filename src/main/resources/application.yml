@@ -1,7 +1,9 @@
 server:
   port: 8080
   servlet:
-    context-path: /api
+    # Versioned so future breaking changes don't force every client (web, and any future mobile
+    # app) to upgrade in lockstep - new versions can live at /api/v2 alongside this one.
+    context-path: /api/v1
 
 spring:
   application:
