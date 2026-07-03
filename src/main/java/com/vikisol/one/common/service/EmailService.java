@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 // Railway (and most cloud hosts) block outbound SMTP ports, so raw SMTP to GoDaddy never connects.
-// Resend's HTTPS API sends from the same careers@vikisol.in mailbox without needing SMTP at all.
+// Resend's HTTPS API sends without needing SMTP at all.
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -30,13 +30,16 @@ public class EmailService {
     @Value("${resend.api-key:}")
     private String resendApiKey;
 
-    @Value("${resend.from:Vikisol One <careers@vikisol.in>}")
+    @Value("${resend.from:Vikisol One <connect@vikisol.in>}")
     private String fromEmail;
 
-    // Resend never touches the actual careers@vikisol.in mailbox, so nothing shows in its Sent folder.
-    // BCC'ing the mailbox on every send gives a record there (in Inbox, not Sent, but visible).
-    @Value("${resend.bcc:careers@vikisol.in}")
+    // Resend never touches the actual mailbox, so nothing shows in its Sent folder.
+    // BCC'ing it on every send gives a record there (in Inbox, not Sent, but visible).
+    @Value("${resend.bcc:connect@vikisol.in}")
     private String bccEmail;
+
+    @Value("${resend.support-email:connect@vikisol.in}")
+    private String supportEmail;
 
     // Overridable via LOGO_URL env var so the logo can be swapped without a code change/redeploy.
     @Value("${app.logo-url:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}")
@@ -46,7 +49,14 @@ public class EmailService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
+    /** A file to attach to an outgoing email - filename plus raw bytes. */
+    public record Attachment(String filename, byte[] content) {}
+
     private void send(String to, String subject, String htmlBody) throws Exception {
+        send(to, subject, htmlBody, List.of());
+    }
+
+    private void send(String to, String subject, String htmlBody, List<Attachment> attachments) throws Exception {
         if (resendApiKey == null || resendApiKey.isBlank()) {
             throw new IllegalStateException("RESEND_API_KEY is not configured");
         }
@@ -57,6 +67,13 @@ public class EmailService {
                 "html", htmlBody));
         if (bccEmail != null && !bccEmail.isBlank()) {
             payload.put("bcc", List.of(bccEmail));
+        }
+        if (attachments != null && !attachments.isEmpty()) {
+            payload.put("attachments", attachments.stream()
+                    .map(a -> Map.of(
+                            "filename", a.filename(),
+                            "content", java.util.Base64.getEncoder().encodeToString(a.content())))
+                    .toList());
         }
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://api.resend.com/emails"))
@@ -85,7 +102,7 @@ public class EmailService {
     public void sendTestEmail(String to) throws Exception {
         send(to, "Vikisol One - Email delivery test",
                 brandedTemplate("Email connectivity test",
-                        "<p style=\"color:#333;font-size:14px;\">This is a test email confirming careers@vikisol.in is correctly wired up to Vikisol One via Resend.</p>"));
+                        "<p style=\"color:#333;font-size:14px;\">This is a test email confirming " + fromEmail + " is correctly wired up to Vikisol One via Resend.</p>"));
     }
 
     @Async
@@ -95,6 +112,16 @@ public class EmailService {
             log.info("HTML email sent to {}: {}", to, subject);
         } catch (Exception e) {
             log.warn("Failed to send HTML email to {}: {}", to, e.getMessage());
+        }
+    }
+
+    @Async
+    public void sendHtmlEmailWithAttachment(String to, String subject, String htmlBody, Attachment attachment) {
+        try {
+            send(to, subject, htmlBody, List.of(attachment));
+            log.info("HTML email with attachment sent to {}: {}", to, subject);
+        } catch (Exception e) {
+            log.warn("Failed to send HTML email with attachment to {}: {}", to, e.getMessage());
         }
     }
 
@@ -109,8 +136,10 @@ public class EmailService {
                 + "<div style=\"color:#9a9a9a;font-size:10px;letter-spacing:2px;margin-top:10px;\">TECHNOLOGY &nbsp;&bull;&nbsp; TALENT &nbsp;&bull;&nbsp; TRANSFORMATION</div>"
                 + "</td></tr>"
                 + "<tr><td style=\"padding:32px;color:#1a1a1a;font-size:14px;line-height:1.6;\">" + bodyHtml + "</td></tr>"
-                + "<tr><td style=\"background:#f4f4f5;padding:20px 32px;color:#777;font-size:11px;text-align:center;\">"
-                + "Vikisol Technologies Pvt Ltd &middot; careers@vikisol.in &middot; www.vikisol.in"
+                + "<tr><td style=\"background:#f4f4f5;padding:20px 32px;color:#777;font-size:11px;text-align:center;line-height:1.8;\">"
+                + "<b>Vikisol Technologies Pvt Ltd</b><br/>"
+                + "Technology &bull; Talent &bull; Transformation<br/>"
+                + "Need Help? " + supportEmail + " &middot; www.vikisol.in"
                 + "</td></tr>"
                 + "</table></td></tr></table></body></html>";
     }
@@ -153,7 +182,7 @@ public class EmailService {
 
     public void sendOfferLetterEmail(String email, String candidateName, String employeeId, String designation,
                                       BigDecimal annualCtc, Map<String, BigDecimal> ctcBreakup, LocalDate dateOfJoining,
-                                      String reportingManagerName) {
+                                      String reportingManagerName, byte[] offerLetterPdf) {
         String subject = "Congratulations " + candidateName + " - Your Offer from Vikisol Technologies";
 
         StringBuilder breakupRows = new StringBuilder();
@@ -184,11 +213,78 @@ public class EmailService {
                 + breakupRows
                 + "</table>"
                 + "<p style=\"margin:0 0 8px;font-weight:600;\">What's Next?</p>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">Our HR team will be in touch shortly with your formal offer letter, onboarding checklist, and the list of documents required before your joining date. If you have any questions in the meantime, reach out to us anytime.</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Your official Offer Letter has been attached to this email for your review. Kindly sign and upload the accepted copy (if applicable) before the expiry date mentioned in the letter. If you have any questions in the meantime, reach out to us anytime.</p>"
                 + "<p style=\"margin:24px 0 0;\">Welcome to the Vikisol family - we're excited to have you on board!</p>"
                 + signatureBlock("Warm regards", "Talent Acquisition Team");
 
-        sendHtmlEmail(email, subject, brandedTemplate("Your offer from Vikisol is ready", body));
+        String html = brandedTemplate("Your offer from Vikisol is ready", body);
+        if (offerLetterPdf != null) {
+            String safeFileName = "Offer_Letter_" + candidateName.trim().replaceAll("\\s+", "_") + ".pdf";
+            sendHtmlEmailWithAttachment(email, subject, html, new Attachment(safeFileName, offerLetterPdf));
+        } else {
+            sendHtmlEmail(email, subject, html);
+        }
+    }
+
+    /** Builds the standalone A4 offer-letter document (for the PDF attachment) - separate from the shorter notification email above. */
+    public String buildOfferLetterPdfHtml(String candidateName, String employeeId, String designation,
+                                           BigDecimal annualCtc, Map<String, BigDecimal> ctcBreakup,
+                                           LocalDate dateOfJoining, String reportingManagerName, LocalDate issueDate) {
+        StringBuilder breakupRows = new StringBuilder();
+        if (ctcBreakup != null) {
+            ctcBreakup.forEach((k, v) -> {
+                if (!"ctc".equals(k)) {
+                    String label = k.replaceAll("([A-Z])", " $1");
+                    label = Character.toUpperCase(label.charAt(0)) + label.substring(1);
+                    breakupRows.append("<tr><td style=\"padding:5px 0;color:#444;font-size:11px;border-bottom:1px solid #eee;\">" + label + "</td>"
+                            + "<td style=\"padding:5px 0;color:#111;font-size:11px;font-weight:bold;text-align:right;border-bottom:1px solid #eee;\">Rs. " + v + "</td></tr>");
+                }
+            });
+        }
+        LocalDate expiry = issueDate.plusDays(7);
+
+        return "<html><head><meta charset=\"UTF-8\"/></head>"
+                + "<body style=\"margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;\">"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#0a0a0a;padding:24px 40px;\">"
+                + "<img src=\"" + logoUrl + "\" alt=\"Vikisol\" style=\"height:34px;\"/>"
+                + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &bull; TALENT &bull; TRANSFORMATION</div>"
+                + "</td></tr></table>"
+                + "<div style=\"padding:36px 40px;\">"
+                + "<h1 style=\"font-size:18px;letter-spacing:1px;text-align:center;margin:0 0 4px;\">OFFER OF EMPLOYMENT</h1>"
+                + "<p style=\"text-align:center;color:#777;font-size:11px;margin:0 0 28px;\">Date: " + issueDate + "</p>"
+                + "<p style=\"font-size:12px;line-height:1.7;margin:0 0 4px;\">To,</p>"
+                + "<p style=\"font-size:12px;line-height:1.7;font-weight:bold;margin:0 0 20px;\">" + candidateName + "</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">Dear " + candidateName + ",</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">We are pleased to offer you employment with <b>Vikisol Technologies Pvt Ltd</b> ('the Company') as <b>" + designation + "</b>"
+                + (reportingManagerName != null && !reportingManagerName.isBlank() ? ", reporting to <b>" + reportingManagerName + "</b>," : ",")
+                + " on the terms set out below.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:6px;padding:14px 18px;margin:0 0 20px;\">"
+                + "<tr><td colspan=\"2\" style=\"padding-bottom:8px;\"><b style=\"font-size:12px;\">Employment Terms</b></td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Employee ID</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">" + employeeId + "</td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Designation</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">" + designation + "</td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Date of Joining</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">" + dateOfJoining + "</td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Annual CTC</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">Rs. " + annualCtc + "</td></tr>"
+                + "</table>"
+                + "<p style=\"font-size:12px;font-weight:bold;margin:0 0 8px;\">Monthly CTC Breakup</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:0 0 20px;\">" + breakupRows + "</table>"
+                + "<p style=\"font-size:12px;font-weight:bold;margin:0 0 8px;\">Terms &amp; Conditions</p>"
+                + "<ol style=\"font-size:11px;line-height:1.8;color:#333;margin:0 0 20px;padding-left:18px;\">"
+                + "<li>This offer is contingent upon successful completion of your background verification and submission of required documents.</li>"
+                + "<li>You will be on probation for a period as communicated by HR, during which either party may terminate employment as per Company policy.</li>"
+                + "<li>Your compensation and benefits are governed by the Company's HR policies, which may be revised from time to time.</li>"
+                + "<li>You are expected to maintain confidentiality of the Company's proprietary and business information during and after your employment.</li>"
+                + "<li>This offer is valid for acceptance until <b>" + expiry + "</b>, after which it stands withdrawn unless extended in writing by the Company.</li>"
+                + "</ol>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 32px;\">Please sign and return a copy of this letter to indicate your acceptance of these terms. We look forward to welcoming you to the Vikisol family.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">"
+                + "<tr><td width=\"50%\" style=\"font-size:11px;\">For <b>Vikisol Technologies Pvt Ltd</b><br/><br/><br/>_____________________<br/>Authorized Signatory</td>"
+                + "<td width=\"50%\" style=\"font-size:11px;\">Accepted by<br/><br/><br/>_____________________<br/>" + candidateName + "</td></tr>"
+                + "</table>"
+                + "</div>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#f4f4f5;padding:16px 40px;color:#888;font-size:9px;text-align:center;\">"
+                + "Vikisol Technologies Pvt Ltd &middot; " + supportEmail + " &middot; www.vikisol.in"
+                + "</td></tr></table>"
+                + "</body></html>";
     }
 
     public void sendHikeLetterEmail(String email, String name, BigDecimal oldCtc, BigDecimal newCtc,

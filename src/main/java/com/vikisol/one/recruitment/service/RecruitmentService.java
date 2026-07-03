@@ -1,8 +1,13 @@
 package com.vikisol.one.recruitment.service;
 
 import com.vikisol.one.common.service.EmailService;
+import com.vikisol.one.common.service.FileStorageService;
+import com.vikisol.one.common.service.PdfService;
 import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.designation.entity.Designation;
+import com.vikisol.one.document.dto.DocumentUploadRequest;
+import com.vikisol.one.document.entity.Document;
+import com.vikisol.one.document.service.DocumentService;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.entity.Employee;
@@ -22,6 +27,7 @@ import com.vikisol.one.security.service.UserPrincipal;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -36,6 +42,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class RecruitmentService {
 
     private final JobPostingRepository jobPostingRepository;
@@ -46,6 +53,9 @@ public class RecruitmentService {
     private final EmployeeRepository employeeRepository;
     private final PayrollService payrollService;
     private final EmailService emailService;
+    private final PdfService pdfService;
+    private final FileStorageService fileStorageService;
+    private final DocumentService documentService;
     private final NotificationService notificationService;
 
     // ─── Job Postings ───
@@ -272,15 +282,37 @@ public class RecruitmentService {
                         .orElse(null)
                 : null;
 
+        String candidateFullName = candidate.getFirstName() + " " + candidate.getLastName();
+        byte[] offerLetterPdf = null;
+        try {
+            String pdfHtml = emailService.buildOfferLetterPdfHtml(
+                    candidateFullName, employee.employeeId(), employee.designationTitle(),
+                    candidate.getOfferedCtc(), breakup, candidate.getOfferedDateOfJoining(),
+                    reportingManagerName, LocalDate.now());
+            offerLetterPdf = pdfService.renderPdf(pdfHtml);
+
+            String fileName = "Offer_Letter_" + candidateFullName.trim().replaceAll("\\s+", "_") + ".pdf";
+            String fileUrl = fileStorageService.storeBytes(offerLetterPdf, "documents", fileName);
+            documentService.uploadDocument(new DocumentUploadRequest(
+                    employee.id(), "Offer Letter", Document.DocumentType.OFFER_LETTER,
+                    fileUrl, fileName, offerLetterPdf.length, "application/pdf",
+                    "Auto-generated on manager approval"));
+        } catch (Exception e) {
+            // Don't block the approval/employee-creation flow if PDF generation fails - the
+            // notification email still goes out, just without the attachment this one time.
+            log.warn("Could not generate/store offer letter PDF for candidate {}: {}", candidate.getId(), e.getMessage());
+        }
+
         emailService.sendOfferLetterEmail(
                 candidate.getEmail(),
-                candidate.getFirstName() + " " + candidate.getLastName(),
+                candidateFullName,
                 employee.employeeId(),
                 employee.designationTitle(),
                 candidate.getOfferedCtc(),
                 breakup,
                 candidate.getOfferedDateOfJoining(),
-                reportingManagerName
+                reportingManagerName,
+                offerLetterPdf
         );
 
         return new SelectCandidateResponse(

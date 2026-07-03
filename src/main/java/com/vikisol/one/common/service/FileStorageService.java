@@ -65,6 +65,24 @@ public class FileStorageService {
         }
     }
 
+    // For server-generated files (e.g. the offer letter PDF) where there's no incoming MultipartFile.
+    public String storeBytes(byte[] data, String subDirectory, String fileName) {
+        String extension = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".")) : "";
+        String storedFileName = UUID.randomUUID() + extension;
+        try {
+            Path targetDir = fileStoragePath.resolve(subDirectory);
+            Files.createDirectories(targetDir);
+            Path targetPath = targetDir.resolve(storedFileName);
+            if (!targetPath.getParent().equals(targetDir)) {
+                throw new BadRequestException("Invalid file path");
+            }
+            Files.write(targetPath, data);
+            return "/files/" + subDirectory + "/" + storedFileName;
+        } catch (IOException e) {
+            throw new RuntimeException("Could not store file", e);
+        }
+    }
+
     public byte[] loadFile(String subDirectory, String fileName) {
         try {
             Path filePath = fileStoragePath.resolve(subDirectory).resolve(fileName).normalize();

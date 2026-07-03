@@ -31,7 +31,9 @@ spring:
 
 resend:
   api-key: ${RESEND_API_KEY:}
-  from: ${RESEND_FROM:Vikisol One <careers@vikisol.in>}
+  from: ${RESEND_FROM:Vikisol One <connect@vikisol.in>}
+  bcc: ${RESEND_BCC:connect@vikisol.in}
+  support-email: ${RESEND_SUPPORT_EMAIL:connect@vikisol.in}
 
 app:
   logo-url: ${LOGO_URL:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}
