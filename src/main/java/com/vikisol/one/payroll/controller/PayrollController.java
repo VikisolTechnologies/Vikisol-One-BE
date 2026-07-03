@@ -122,6 +122,19 @@ public class PayrollController {
         return ResponseEntity.ok(new ApiResponse<>(true, "CTC breakup computed", payrollService.computeCtcBreakup(ctc)));
     }
 
+    // CEO-chosen name for the 6th, custom CTC component (e.g. "LTA", "Bonus"). 0% until named/set.
+    @GetMapping("/ctc-custom-label")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'RECRUITER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<String>> getCtcCustomLabel() {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Custom CTC label retrieved", payrollService.getCtcCustomLabel()));
+    }
+
+    @PutMapping("/ctc-custom-label")
+    @PreAuthorize("hasRole('CEO')")
+    public ResponseEntity<ApiResponse<String>> updateCtcCustomLabel(@RequestBody java.util.Map<String, String> body) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Custom CTC label updated", payrollService.updateCtcCustomLabel(body.get("label"))));
+    }
+
     // ── Salary Advance ──────────────────────────────────────────────────────
 
     @PostMapping("/salary-advance")

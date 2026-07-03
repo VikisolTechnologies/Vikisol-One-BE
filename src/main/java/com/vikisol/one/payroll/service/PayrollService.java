@@ -68,18 +68,41 @@ public class PayrollService {
     // ── CTC Breakup Template (CEO-defined, applies to every offer/employee) ──
 
     private static final String CTC_BREAKUP_CATEGORY = "CTC_BREAKUP";
+    private static final String CUSTOM_LABEL_KEY = "CUSTOM_ALLOWANCE_LABEL";
     private static final java.util.Map<String, BigDecimal> DEFAULT_CTC_BREAKUP = java.util.Map.of(
             "BASIC_PCT", new BigDecimal("50"),
             "HRA_PCT", new BigDecimal("20"),
             "CONVEYANCE_PCT", new BigDecimal("10"),
             "MEDICAL_PCT", new BigDecimal("10"),
-            "SPECIAL_PCT", new BigDecimal("10")
+            "SPECIAL_PCT", new BigDecimal("10"),
+            // CEO-nameable 6th component - 0% by default so existing breakups are unaffected
+            // until the CEO explicitly assigns it a percentage.
+            "CUSTOM_PCT", BigDecimal.ZERO
     );
+
+    // The CEO-chosen name for the custom component (e.g. "LTA", "Bonus"). Stored as a
+    // PayrollConfig row outside the percentage map since it's text, not a number.
+    public String getCtcCustomLabel() {
+        return payrollConfigRepository.findByKey(CUSTOM_LABEL_KEY)
+                .map(PayrollConfig::getValue)
+                .orElse("Custom Allowance");
+    }
+
+    public String updateCtcCustomLabel(String label) {
+        PayrollConfig config = payrollConfigRepository.findByKey(CUSTOM_LABEL_KEY)
+                .orElse(PayrollConfig.builder().key(CUSTOM_LABEL_KEY).build());
+        config.setValue(label);
+        config.setCategory(CTC_BREAKUP_CATEGORY);
+        config.setDescription("Label for the CEO-defined custom CTC component");
+        payrollConfigRepository.save(config);
+        return label;
+    }
 
     public java.util.Map<String, BigDecimal> getCtcBreakupTemplate() {
         List<PayrollConfig> saved = payrollConfigRepository.findByCategory(CTC_BREAKUP_CATEGORY);
         java.util.Map<String, BigDecimal> result = new java.util.LinkedHashMap<>(DEFAULT_CTC_BREAKUP);
         for (PayrollConfig c : saved) {
+            if (CUSTOM_LABEL_KEY.equals(c.getKey())) continue; // text label, not a percentage
             result.put(c.getKey(), new BigDecimal(c.getValue()));
         }
         return result;
@@ -114,6 +137,7 @@ public class PayrollService {
         breakup.put("conveyanceAllowance", pctOf(monthlyCtc, template.get("CONVEYANCE_PCT")));
         breakup.put("medicalAllowance", pctOf(monthlyCtc, template.get("MEDICAL_PCT")));
         breakup.put("specialAllowance", pctOf(monthlyCtc, template.get("SPECIAL_PCT")));
+        breakup.put("customAllowance", pctOf(monthlyCtc, template.getOrDefault("CUSTOM_PCT", BigDecimal.ZERO)));
         breakup.put("grossSalary", monthlyCtc);
         breakup.put("ctc", annualCtc);
         return breakup;
@@ -160,6 +184,7 @@ public class PayrollService {
             BigDecimal conveyance = defaultZero(employee.getConveyanceAllowance());
             BigDecimal medical = defaultZero(employee.getMedicalAllowance());
             BigDecimal special = defaultZero(employee.getSpecialAllowance());
+            BigDecimal custom = defaultZero(employee.getCustomAllowance());
             BigDecimal gross = defaultZero(employee.getGrossSalary());
 
             // Attendance: assume full attendance if no attendance module yet
@@ -217,7 +242,7 @@ public class PayrollService {
                     .conveyanceAllowance(conveyance)
                     .medicalAllowance(medical)
                     .specialAllowance(special)
-                    .otherEarnings(BigDecimal.ZERO)
+                    .otherEarnings(custom)
                     .grossEarnings(grossEarnings)
                     .pfEmployee(pfEmployee)
                     .esiEmployee(esiEmployee)

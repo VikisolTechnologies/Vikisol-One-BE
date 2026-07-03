@@ -266,6 +266,7 @@ public class RecruitmentService {
                 breakup.get("conveyanceAllowance"),
                 breakup.get("medicalAllowance"),
                 breakup.get("specialAllowance"),
+                breakup.get("customAllowance"),
                 breakup.get("grossSalary"),
                 breakup.get("ctc")
         );

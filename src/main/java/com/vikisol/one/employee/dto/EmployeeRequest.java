@@ -45,6 +45,7 @@ public record EmployeeRequest(
         BigDecimal conveyanceAllowance,
         BigDecimal medicalAllowance,
         BigDecimal specialAllowance,
+        BigDecimal customAllowance,
         BigDecimal grossSalary,
         BigDecimal ctc
 ) {

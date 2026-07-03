@@ -50,6 +50,7 @@ public record EmployeeResponse(
         BigDecimal conveyanceAllowance,
         BigDecimal medicalAllowance,
         BigDecimal specialAllowance,
+        BigDecimal customAllowance,
         BigDecimal grossSalary,
         BigDecimal ctc,
         boolean isActive,

@@ -138,6 +138,7 @@ public class EmployeeService {
                 .conveyanceAllowance(request.conveyanceAllowance())
                 .medicalAllowance(request.medicalAllowance())
                 .specialAllowance(request.specialAllowance())
+                .customAllowance(request.customAllowance())
                 .grossSalary(request.grossSalary())
                 .ctc(request.ctc())
                 .isActive(true)
@@ -196,6 +197,7 @@ public class EmployeeService {
         employee.setConveyanceAllowance(request.conveyanceAllowance());
         employee.setMedicalAllowance(request.medicalAllowance());
         employee.setSpecialAllowance(request.specialAllowance());
+        employee.setCustomAllowance(request.customAllowance());
         employee.setGrossSalary(request.grossSalary());
         employee.setCtc(request.ctc());
 
@@ -269,6 +271,7 @@ public class EmployeeService {
         employee.setConveyanceAllowance(breakup.get("conveyanceAllowance"));
         employee.setMedicalAllowance(breakup.get("medicalAllowance"));
         employee.setSpecialAllowance(breakup.get("specialAllowance"));
+        employee.setCustomAllowance(breakup.get("customAllowance"));
         employee.setGrossSalary(breakup.get("grossSalary"));
         employee.setCtc(breakup.get("ctc"));
 
@@ -404,6 +407,7 @@ public class EmployeeService {
                 employee.getConveyanceAllowance(),
                 employee.getMedicalAllowance(),
                 employee.getSpecialAllowance(),
+                employee.getCustomAllowance(),
                 employee.getGrossSalary(),
                 employee.getCtc(),
                 employee.isActive(),

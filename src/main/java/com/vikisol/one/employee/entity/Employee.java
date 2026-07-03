@@ -92,6 +92,8 @@ public class Employee extends BaseEntity {
     private BigDecimal conveyanceAllowance;
     private BigDecimal medicalAllowance;
     private BigDecimal specialAllowance;
+    // CEO-nameable 6th CTC component (see PayrollService.CUSTOM_LABEL_KEY for its display name) - nullable/0 by default.
+    private BigDecimal customAllowance;
     private BigDecimal grossSalary;
     private BigDecimal ctc;
 
