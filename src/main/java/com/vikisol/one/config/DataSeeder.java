@@ -44,6 +44,7 @@ public class DataSeeder implements CommandLineRunner {
     private final RolePermissionRepository rolePermissionRepository;
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
+    private final ScheduledTasks scheduledTasks;
 
     @Override
     @Transactional
@@ -75,6 +76,14 @@ public class DataSeeder implements CommandLineRunner {
         }
         // Always run — idempotent, links any user that lacks an Employee record
         seedEmployeesForUsers();
+
+        // initializeYearlyLeaveBalances() only ran via @Scheduled(cron = "0 0 0 1 1 *") - literally
+        // only at midnight Jan 1st. Since this app has never been running at that exact moment,
+        // every employee had ZERO leave balance for the entire year, and applying for leave failed
+        // outright ("Leave balance not found") for 100% of employees. The method is idempotent
+        // (skips any employee/leaveType/year combo that already has a balance), so it's safe to
+        // also run it here on every startup as a catch-up, not just wait for the next Jan 1.
+        scheduledTasks.initializeYearlyLeaveBalances();
     }
 
     private void dropStaleCheckConstraint(String table, String constraintName) {

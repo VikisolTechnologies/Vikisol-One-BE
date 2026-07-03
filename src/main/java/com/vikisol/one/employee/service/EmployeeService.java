@@ -18,6 +18,7 @@ import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.auth.entity.User;
 import com.vikisol.one.auth.repository.UserRepository;
+import com.vikisol.one.leave.service.LeaveService;
 import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.security.service.UserPrincipal;
@@ -46,6 +47,7 @@ public class EmployeeService {
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final LeaveService leaveService;
 
     private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -147,6 +149,9 @@ public class EmployeeService {
                 .build();
 
         employee = employeeRepository.save(employee);
+        // Without this, a mid-year hire has zero leave balance until the next Jan 1 catch-up -
+        // they'd hit the same "Leave balance not found" error found via live workflow testing.
+        leaveService.initializeLeaveBalances(employee.getId(), java.time.LocalDate.now().getYear());
         auditService.record("Employee Created", nextEmployeeId,
                 employee.getFirstName() + " " + employee.getLastName() + " (" + employee.getEmail() + ")");
         return toResponse(employee);
