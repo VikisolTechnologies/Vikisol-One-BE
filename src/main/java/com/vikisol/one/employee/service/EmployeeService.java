@@ -205,10 +205,37 @@ public class EmployeeService {
         return toResponse(employee);
     }
 
-    public EmployeeResponse getById(UUID id) {
+    public EmployeeResponse getById(UUID id, UserPrincipal principal) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
-        return toResponse(employee);
+        EmployeeResponse response = toResponse(employee);
+
+        boolean isPrivileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isSelf = employee.getUser() != null && employee.getUser().getId().equals(principal.getId());
+
+        return (isPrivileged || isSelf) ? response : maskSensitiveFields(response);
+    }
+
+    // Directory browsing (any authenticated role) should only ever see non-sensitive fields for
+    // someone else's record - bank details, government IDs, and compensation are HR/CEO/self-only.
+    private EmployeeResponse maskSensitiveFields(EmployeeResponse r) {
+        return new EmployeeResponse(
+                r.id(), r.employeeId(), r.firstName(), r.lastName(), r.email(), r.phone(),
+                null, null,
+                r.departmentId(), r.departmentName(), r.designationId(), r.designationTitle(),
+                r.dateOfJoining(), null, null,
+                r.reportingManagerId(), r.reportingManagerName(),
+                r.employmentType(), r.employmentStatus(),
+                null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                null, null, null,
+                r.profilePictureUrl(),
+                null, null, null, null, null, null, null, null,
+                r.isActive(), r.createdAt(), r.accountRole(),
+                r.onboardingDocumentsVerified(), r.onboardingAssetsAssigned(),
+                r.onboardingBankDetailsCollected(), r.onboardingInductionCompleted()
+        );
     }
 
     public PagedResponse<EmployeeListResponse> getAll(Pageable pageable) {

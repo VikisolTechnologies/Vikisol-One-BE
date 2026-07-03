@@ -39,9 +39,12 @@ public class EmployeeController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Employees retrieved", employees));
     }
 
+    // Any authenticated role can call this (directory browsing needs it), but the service masks
+    // sensitive PII (bank details, PAN, Aadhar, salary) unless the caller is CEO/HR/Admin or
+    // viewing their own record - this endpoint had no such restriction before.
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<EmployeeResponse>> getById(@PathVariable UUID id) {
-        EmployeeResponse employee = employeeService.getById(id);
+    public ResponseEntity<ApiResponse<EmployeeResponse>> getById(@PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
+        EmployeeResponse employee = employeeService.getById(id, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Employee retrieved", employee));
     }
 
