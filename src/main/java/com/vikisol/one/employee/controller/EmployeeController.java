@@ -6,6 +6,7 @@ import com.vikisol.one.employee.dto.EmployeeListResponse;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.dto.HikeRequest;
+import com.vikisol.one.employee.dto.OnboardingChecklistRequest;
 import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.service.EmployeeService;
 import com.vikisol.one.security.RoleEnum;
@@ -119,5 +120,13 @@ public class EmployeeController {
     public ResponseEntity<ApiResponse<EmployeeResponse>> changeAccountRole(@PathVariable UUID id, @RequestParam RoleEnum role) {
         EmployeeResponse employee = employeeService.changeAccountRole(id, role);
         return ResponseEntity.ok(new ApiResponse<>(true, "Account role updated", employee));
+    }
+
+    // Updates the onboarding checklist (documents verified, assets assigned, bank details, induction).
+    @PutMapping("/{id}/onboarding")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> updateOnboarding(@PathVariable UUID id, @RequestBody OnboardingChecklistRequest request) {
+        EmployeeResponse employee = employeeService.updateOnboardingChecklist(id, request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Onboarding checklist updated", employee));
     }
 }

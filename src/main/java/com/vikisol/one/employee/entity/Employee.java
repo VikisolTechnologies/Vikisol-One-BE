@@ -98,6 +98,20 @@ public class Employee extends BaseEntity {
     @Builder.Default
     private boolean isActive = true;
 
+    // Onboarding checklist - tracked here rather than a separate table since it's just a
+    // handful of one-time flags per employee, not something that needs its own history/queries.
+    @Builder.Default
+    private boolean onboardingDocumentsVerified = false;
+
+    @Builder.Default
+    private boolean onboardingAssetsAssigned = false;
+
+    @Builder.Default
+    private boolean onboardingBankDetailsCollected = false;
+
+    @Builder.Default
+    private boolean onboardingInductionCompleted = false;
+
     public enum Gender {
         MALE, FEMALE, OTHER
     }

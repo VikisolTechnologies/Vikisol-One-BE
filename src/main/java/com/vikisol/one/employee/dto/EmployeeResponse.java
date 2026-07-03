@@ -54,6 +54,10 @@ public record EmployeeResponse(
         BigDecimal ctc,
         boolean isActive,
         LocalDateTime createdAt,
-        String accountRole
+        String accountRole,
+        boolean onboardingDocumentsVerified,
+        boolean onboardingAssetsAssigned,
+        boolean onboardingBankDetailsCollected,
+        boolean onboardingInductionCompleted
 ) {
 }

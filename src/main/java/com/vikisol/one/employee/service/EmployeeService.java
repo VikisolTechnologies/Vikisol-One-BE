@@ -10,6 +10,7 @@ import com.vikisol.one.employee.dto.EmployeeListResponse;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.dto.HikeRequest;
+import com.vikisol.one.employee.dto.OnboardingChecklistRequest;
 import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
@@ -313,6 +314,19 @@ public class EmployeeService {
         return toResponse(employee);
     }
 
+    /** Updates the onboarding checklist flags (documents, assets, bank details, induction). */
+    @Transactional
+    public EmployeeResponse updateOnboardingChecklist(UUID id, OnboardingChecklistRequest request) {
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        if (request.documentsVerified() != null) employee.setOnboardingDocumentsVerified(request.documentsVerified());
+        if (request.assetsAssigned() != null) employee.setOnboardingAssetsAssigned(request.assetsAssigned());
+        if (request.bankDetailsCollected() != null) employee.setOnboardingBankDetailsCollected(request.bankDetailsCollected());
+        if (request.inductionCompleted() != null) employee.setOnboardingInductionCompleted(request.inductionCompleted());
+        employee = employeeRepository.save(employee);
+        return toResponse(employee);
+    }
+
     private String generateNextEmployeeId() {
         List<Employee> all = employeeRepository.findAll();
         int maxNum = all.stream()
@@ -384,7 +398,11 @@ public class EmployeeService {
                 employee.getCtc(),
                 employee.isActive(),
                 employee.getCreatedAt(),
-                employee.getUser() != null ? employee.getUser().getRole().name() : null
+                employee.getUser() != null ? employee.getUser().getRole().name() : null,
+                employee.isOnboardingDocumentsVerified(),
+                employee.isOnboardingAssetsAssigned(),
+                employee.isOnboardingBankDetailsCollected(),
+                employee.isOnboardingInductionCompleted()
         );
     }
 
