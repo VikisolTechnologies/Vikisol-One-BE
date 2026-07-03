@@ -129,6 +129,14 @@ public class EmployeeController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Account role updated", employee));
     }
 
+    // Resets an employee's login password to a new temp password and emails it to them.
+    @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@PathVariable UUID id) {
+        employeeService.resetPassword(id);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Password reset and emailed to the employee", null));
+    }
+
     // Updates the onboarding checklist (documents verified, assets assigned, bank details, induction).
     @PutMapping("/{id}/onboarding")
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")

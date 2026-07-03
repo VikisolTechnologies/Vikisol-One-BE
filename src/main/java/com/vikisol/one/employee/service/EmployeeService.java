@@ -232,6 +232,21 @@ public class EmployeeService {
                 .toList();
     }
 
+    // CEO/HR resets an existing employee's login password to a new temp password and emails it,
+    // reusing the same welcome-email template used when the account was first provisioned.
+    public void resetPassword(UUID employeeId) {
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        User user = employee.getUser();
+        if (user == null) {
+            throw new RuntimeException("This employee has no login account to reset");
+        }
+        String tempPassword = generateTempPassword();
+        user.setPassword(passwordEncoder.encode(tempPassword));
+        userRepository.save(user);
+        emailService.sendPasswordResetEmail(user.getEmail(), employee.getFirstName() + " " + employee.getLastName(), tempPassword);
+    }
+
     public List<ManagerOptionResponse> getManagerOptions() {
         return employeeRepository.findAllManagers().stream()
                 .map(e -> new ManagerOptionResponse(

@@ -360,4 +360,18 @@ public class EmailService {
                 + signatureBlock("Regards", "Human Resources");
         sendHtmlEmail(email, subject, brandedTemplate("Your Vikisol One account is ready", body));
     }
+
+    public void sendPasswordResetEmail(String email, String name, String tempPassword) {
+        String subject = "Your Vikisol One Password Has Been Reset";
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Password Reset</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Hi " + name + ", your Vikisol One password has been reset by an administrator. Use the temporary password below to log in.</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
+                + rowHtml("Login Email", email)
+                + rowHtml("Temporary Password", tempPassword)
+                + "</table>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">For security, please log in and change this password as soon as possible. If you did not expect this reset, contact HR immediately.</p>"
+                + signatureBlock("Regards", "Human Resources");
+        sendHtmlEmail(email, subject, brandedTemplate("Your Vikisol One password was reset", body));
+    }
 }
