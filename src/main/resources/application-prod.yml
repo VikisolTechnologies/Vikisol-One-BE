@@ -35,11 +35,13 @@ resend:
   bcc: ${RESEND_BCC:connect@vikisol.in}
   support-email: ${RESEND_SUPPORT_EMAIL:connect@vikisol.in}
 
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+  api-key: ${CLOUDINARY_API_KEY:}
+  api-secret: ${CLOUDINARY_API_SECRET:}
+
 app:
   logo-url: ${LOGO_URL:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}
-
-  file:
-    upload-dir: ${UPLOAD_DIR:/tmp/vikisol-uploads}
 
   jwt:
     # No fallback default on purpose - a hardcoded secret baked into source control (even as a

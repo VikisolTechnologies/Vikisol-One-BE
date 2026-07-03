@@ -16,7 +16,7 @@ ENV TZ=Asia/Kolkata
 RUN addgroup -S vikisol && adduser -S vikisol -G vikisol
 COPY --from=builder /app/target/*.jar app.jar
 COPY entrypoint.sh entrypoint.sh
-RUN chmod +x entrypoint.sh && mkdir -p /tmp/vikisol-uploads && chown -R vikisol:vikisol /app /tmp/vikisol-uploads
+RUN chmod +x entrypoint.sh && chown -R vikisol:vikisol /app
 USER vikisol
 EXPOSE 8080
 ENTRYPOINT ["sh", "entrypoint.sh"]

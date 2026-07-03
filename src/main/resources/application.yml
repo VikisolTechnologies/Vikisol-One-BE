@@ -36,10 +36,12 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
-app:
-  file:
-    upload-dir: ${UPLOAD_DIR:uploads}
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+  api-key: ${CLOUDINARY_API_KEY:}
+  api-secret: ${CLOUDINARY_API_SECRET:}
 
+app:
   jwt:
     # Local-dev-only fallback (this file is never used in prod - see application-prod.yml, which
     # has no fallback and fails fast instead). Still, don't reuse this value anywhere real.

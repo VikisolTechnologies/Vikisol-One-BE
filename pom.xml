@@ -62,6 +62,14 @@
             <version>1.0.10</version>
         </dependency>
 
+        <!-- Persistent object storage for uploaded documents/resumes/generated PDFs - Railway's
+             local disk is ephemeral and wipes on every redeploy, unsuitable for HR documents. -->
+        <dependency>
+            <groupId>com.cloudinary</groupId>
+            <artifactId>cloudinary-http44</artifactId>
+            <version>1.39.0</version>
+        </dependency>
+
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
