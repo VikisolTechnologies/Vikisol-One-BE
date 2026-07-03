@@ -41,7 +41,9 @@ app:
     upload-dir: ${UPLOAD_DIR:uploads}
 
   jwt:
-    secret: ${JWT_SECRET:VikisolOneHRMSSecretKey2026ForJwtTokenSigningMustBe512BitsLongEnough!!}
+    # Local-dev-only fallback (this file is never used in prod - see application-prod.yml, which
+    # has no fallback and fails fast instead). Still, don't reuse this value anywhere real.
+    secret: ${JWT_SECRET:local-dev-only-secret-do-not-use-in-any-deployed-environment}
     expiration-ms: 86400000
     refresh-expiration-ms: 604800000
 

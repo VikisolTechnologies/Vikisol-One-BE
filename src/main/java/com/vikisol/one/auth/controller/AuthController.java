@@ -25,12 +25,6 @@ public class AuthController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Login successful", response));
     }
 
-    @PostMapping("/register")
-    public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        AuthResponse response = authService.register(request);
-        return ResponseEntity.ok(new ApiResponse<>(true, "Registration successful", response));
-    }
-
     @PostMapping("/change-password")
     public ResponseEntity<ApiResponse<Void>> changePassword(
             @Valid @RequestBody ChangePasswordRequest request,

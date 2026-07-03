@@ -42,7 +42,10 @@ app:
     upload-dir: ${UPLOAD_DIR:/tmp/vikisol-uploads}
 
   jwt:
-    secret: ${JWT_SECRET:VikisolOneHRMSSecretKey2026ForJwtTokenSigningMustBe512BitsLongEnough!!}
+    # No fallback default on purpose - a hardcoded secret baked into source control (even as a
+    # "safety net") is a real vulnerability: anyone with repo access could forge valid tokens for
+    # any user, including CEO, in any environment that forgot to set this. Fail fast instead.
+    secret: ${JWT_SECRET}
     expiration-ms: 86400000
     refresh-expiration-ms: 604800000
 
