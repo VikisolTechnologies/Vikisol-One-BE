@@ -38,6 +38,10 @@ public class EmailService {
     @Value("${resend.bcc:careers@vikisol.in}")
     private String bccEmail;
 
+    // Overridable via LOGO_URL env var so the logo can be swapped without a code change/redeploy.
+    @Value("${app.logo-url:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}")
+    private String logoUrl;
+
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -101,7 +105,7 @@ public class EmailService {
                 + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"padding:32px 16px;\">"
                 + "<table role=\"presentation\" width=\"560\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);\">"
                 + "<tr><td style=\"background:#0a0a0a;padding:28px 32px;\">"
-                + "<img src=\"https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png\" alt=\"Vikisol\" style=\"height:40px;display:block;\" />"
+                + "<img src=\"" + logoUrl + "\" alt=\"Vikisol\" style=\"height:40px;display:block;\" />"
                 + "<div style=\"color:#9a9a9a;font-size:10px;letter-spacing:2px;margin-top:10px;\">TECHNOLOGY &nbsp;&bull;&nbsp; TALENT &nbsp;&bull;&nbsp; TRANSFORMATION</div>"
                 + "</td></tr>"
                 + "<tr><td style=\"padding:32px;color:#1a1a1a;font-size:14px;line-height:1.6;\">" + bodyHtml + "</td></tr>"
@@ -114,6 +118,13 @@ public class EmailService {
     private String rowHtml(String label, String value) {
         return "<tr><td style=\"padding:6px 0;color:#666;font-size:13px;\">" + label + "</td>"
                 + "<td style=\"padding:6px 0;color:#1a1a1a;font-size:13px;font-weight:600;text-align:right;\">" + value + "</td></tr>";
+    }
+
+    /** Formal closing block used across offer/hike/resignation letters, e.g. signatureBlock("Warm regards", "Talent Acquisition Team"). */
+    private String signatureBlock(String closing, String signatoryTitle) {
+        return "<p style=\"margin:28px 0 0;color:#1a1a1a;\">" + closing + ",<br/>"
+                + "<b>" + signatoryTitle + "</b><br/>"
+                + "Vikisol Technologies Pvt Ltd</p>";
     }
 
     public void sendLeaveApprovalNotification(String employeeEmail, String employeeName, String status, String leaveType, String dates) {
@@ -172,7 +183,7 @@ public class EmailService {
                 + "<p style=\"margin:0 0 8px;font-weight:600;\">What's Next?</p>"
                 + "<p style=\"margin:0 0 20px;color:#444;\">Our HR team will be in touch shortly with your formal offer letter, onboarding checklist, and the list of documents required before your joining date. If you have any questions in the meantime, reach out to us anytime.</p>"
                 + "<p style=\"margin:24px 0 0;\">Welcome to the Vikisol family - we're excited to have you on board!</p>"
-                + "<p style=\"margin:16px 0 0;color:#444;\">Warm regards,<br/><b>Talent Acquisition Team</b><br/>Vikisol Technologies Pvt Ltd</p>";
+                + signatureBlock("Warm regards", "Talent Acquisition Team");
 
         sendHtmlEmail(email, subject, brandedTemplate("Your offer from Vikisol is ready", body));
     }
@@ -180,41 +191,55 @@ public class EmailService {
     public void sendHikeLetterEmail(String email, String name, BigDecimal oldCtc, BigDecimal newCtc,
                                      Map<String, BigDecimal> ctcBreakup, LocalDate effectiveDate, String reason) {
         String subject = "Congratulations " + name + " - Your Salary Revision at Vikisol";
-        StringBuilder breakupText = new StringBuilder();
+
+        StringBuilder breakupRows = new StringBuilder();
         if (ctcBreakup != null) {
             ctcBreakup.forEach((k, v) -> {
-                if (!"ctc".equals(k)) breakupText.append(String.format("  %-22s: Rs. %s%n", k, v));
+                if (!"ctc".equals(k)) {
+                    String label = k.replaceAll("([A-Z])", " $1");
+                    label = Character.toUpperCase(label.charAt(0)) + label.substring(1);
+                    breakupRows.append(rowHtml(label, "&#8377; " + v));
+                }
             });
         }
         BigDecimal hikePct = oldCtc != null && oldCtc.compareTo(BigDecimal.ZERO) > 0
                 ? newCtc.subtract(oldCtc).multiply(new BigDecimal("100")).divide(oldCtc, 1, RoundingMode.HALF_UP)
                 : null;
-        String body = String.format(
-                "Dear %s,%n%nCongratulations! We are pleased to inform you of a revision to your compensation, effective %s.%n%n" +
-                "Previous Annual CTC: Rs. %s%n" +
-                "New Annual CTC: Rs. %s%n" +
-                (hikePct != null ? "Hike: %s%%%n%n" : "%n") +
-                "New Monthly Salary Breakup:%n%s%n" +
-                "%s" +
-                "Thank you for your continued contribution to Vikisol.%n%n" +
-                "Regards,%nVikisol One HR",
-                name, effectiveDate,
-                oldCtc, newCtc,
-                hikePct != null ? hikePct : "",
-                breakupText,
-                (reason != null && !reason.isBlank()) ? "Note: " + reason + "\n\n" : "");
-        sendEmail(email, subject, body);
+
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Congratulations, " + name + "! &#127881;</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">We are pleased to inform you of a revision to your compensation at <b>Vikisol Technologies Pvt Ltd</b>, effective <b>" + effectiveDate + "</b>.</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
+                + rowHtml("Previous Annual CTC", "&#8377; " + oldCtc)
+                + rowHtml("New Annual CTC", "&#8377; " + newCtc)
+                + (hikePct != null ? rowHtml("Hike", hikePct + "%") : "")
+                + "</table>"
+                + "<p style=\"margin:20px 0 8px;font-weight:600;\">New Monthly CTC Breakup</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
+                + breakupRows
+                + "</table>"
+                + ((reason != null && !reason.isBlank()) ? "<p style=\"margin:0 0 20px;color:#444;\"><b>Note:</b> " + reason + "</p>" : "")
+                + "<p style=\"margin:0;color:#444;\">Thank you for your continued contribution to Vikisol - this revision reflects the value you bring to the team.</p>"
+                + signatureBlock("Warm regards", "Human Resources");
+
+        sendHtmlEmail(email, subject, brandedTemplate("Your salary revision at Vikisol", body));
     }
 
     public void sendResignationAcknowledgementEmail(String email, String name, LocalDate lastWorkingDate) {
         String subject = "Resignation Acknowledged - " + name;
-        String body = String.format(
-                "Dear %s,%n%nThis is to acknowledge receipt of your resignation. Your last working day with Vikisol will be %s.%n%n" +
-                "Our HR team will reach out shortly regarding your exit formalities, full and final settlement, and knowledge transfer plan.%n%n" +
-                "We appreciate your contributions and wish you the very best for your future endeavors.%n%n" +
-                "Regards,%nVikisol One HR",
-                name, lastWorkingDate);
-        sendEmail(email, subject, body);
+
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Resignation Acknowledged</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Dear " + name + ",</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">This is to acknowledge receipt of your resignation from Vikisol Technologies Pvt Ltd.</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
+                + rowHtml("Last Working Day", String.valueOf(lastWorkingDate))
+                + "</table>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Our HR team will reach out shortly regarding your exit formalities, full and final settlement, and knowledge transfer plan.</p>"
+                + "<p style=\"margin:0;color:#444;\">We appreciate your contributions and wish you the very best for your future endeavors.</p>"
+                + signatureBlock("Regards", "Human Resources");
+
+        sendHtmlEmail(email, subject, brandedTemplate("Your resignation has been acknowledged", body));
     }
 
     public void sendTimesheetSubmittedNotification(String managerEmail, String employeeName, String weekLabel) {
@@ -233,7 +258,7 @@ public class EmailService {
                 + rowHtml("Temporary Password", tempPassword)
                 + "</table>"
                 + "<p style=\"margin:0 0 20px;color:#444;\">For security, please log in and change your password as soon as possible.</p>"
-                + "<p style=\"margin:16px 0 0;color:#444;\">Regards,<br/><b>Vikisol One HR</b></p>";
+                + signatureBlock("Regards", "Human Resources");
         sendHtmlEmail(email, subject, brandedTemplate("Your Vikisol One account is ready", body));
     }
 }
