@@ -68,14 +68,14 @@ public class RecruitmentController {
     // ─── Candidates ───
 
     @GetMapping("/candidates")
-    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    @PreAuthorize("hasAnyRole('RECRUITER','MANAGER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<Page<CandidateResponse>>> getCandidates(Pageable pageable) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidates retrieved",
                 recruitmentService.getCandidates(pageable)));
     }
 
     @GetMapping("/candidates/{id}")
-    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    @PreAuthorize("hasAnyRole('RECRUITER','MANAGER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> getCandidate(@PathVariable UUID id) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidate retrieved",
                 recruitmentService.getCandidate(id)));
