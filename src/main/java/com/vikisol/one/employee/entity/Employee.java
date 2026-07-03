@@ -100,15 +100,19 @@ public class Employee extends BaseEntity {
 
     // Onboarding checklist - tracked here rather than a separate table since it's just a
     // handful of one-time flags per employee, not something that needs its own history/queries.
+    @Column(columnDefinition = "boolean default false")
     @Builder.Default
     private boolean onboardingDocumentsVerified = false;
 
+    @Column(columnDefinition = "boolean default false")
     @Builder.Default
     private boolean onboardingAssetsAssigned = false;
 
+    @Column(columnDefinition = "boolean default false")
     @Builder.Default
     private boolean onboardingBankDetailsCollected = false;
 
+    @Column(columnDefinition = "boolean default false")
     @Builder.Default
     private boolean onboardingInductionCompleted = false;
 
