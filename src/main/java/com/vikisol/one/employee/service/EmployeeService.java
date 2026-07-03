@@ -3,10 +3,15 @@ package com.vikisol.one.employee.service;
 import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.common.service.EmailService;
+import com.vikisol.one.common.service.FileStorageService;
+import com.vikisol.one.common.service.PdfService;
 import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
 import com.vikisol.one.designation.repository.DesignationRepository;
+import com.vikisol.one.document.dto.DocumentUploadRequest;
+import com.vikisol.one.document.entity.Document;
+import com.vikisol.one.document.service.DocumentService;
 import com.vikisol.one.employee.dto.EmployeeListResponse;
 import com.vikisol.one.employee.dto.EmployeeRequest;
 import com.vikisol.one.employee.dto.EmployeeResponse;
@@ -48,6 +53,9 @@ public class EmployeeService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final LeaveService leaveService;
+    private final PdfService pdfService;
+    private final FileStorageService fileStorageService;
+    private final DocumentService documentService;
 
     private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -283,6 +291,56 @@ public class EmployeeService {
         emailService.sendPasswordResetEmail(user.getEmail(), employee.getFirstName() + " " + employee.getLastName(), tempPassword);
         auditService.record("Password Reset", employee.getEmployeeId(),
                 "Password reset for " + employee.getFirstName() + " " + employee.getLastName());
+    }
+
+    // Generates (or regenerates) an existing employee's official offer letter PDF from their
+    // current, approved record - designation, CTC breakup, joining date, reporting manager - and
+    // stores it as a document. Reuses the exact same PDF template used at hiring time.
+    public String generateOfferLetter(UUID employeeId) {
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        if (employee.getCtc() == null) {
+            throw new RuntimeException("This employee has no CTC/salary details on file yet");
+        }
+
+        Map<String, BigDecimal> breakup = Map.of(
+                "basicSalary", nvl(employee.getBasicSalary()),
+                "hra", nvl(employee.getHra()),
+                "conveyanceAllowance", nvl(employee.getConveyanceAllowance()),
+                "medicalAllowance", nvl(employee.getMedicalAllowance()),
+                "specialAllowance", nvl(employee.getSpecialAllowance()),
+                "customAllowance", nvl(employee.getCustomAllowance())
+        );
+
+        String reportingManagerName = employee.getReportingManagerId() != null
+                ? employeeRepository.findById(employee.getReportingManagerId())
+                        .map(m -> m.getFirstName() + " " + m.getLastName())
+                        .orElse(null)
+                : null;
+
+        String fullName = employee.getFirstName() + " " + employee.getLastName();
+        String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "";
+
+        String pdfHtml = emailService.buildOfferLetterPdfHtml(
+                fullName, employee.getEmployeeId(), designationTitle,
+                employee.getCtc(), breakup,
+                employee.getDateOfJoining() != null ? employee.getDateOfJoining() : java.time.LocalDate.now(),
+                reportingManagerName, java.time.LocalDate.now());
+        byte[] pdf = pdfService.renderPdf(pdfHtml);
+
+        String fileName = "Offer_Letter_" + fullName.trim().replaceAll("\\s+", "_") + ".pdf";
+        String fileUrl = fileStorageService.storeBytes(pdf, "documents", fileName);
+        documentService.uploadDocument(new DocumentUploadRequest(
+                employee.getId(), "Offer Letter", Document.DocumentType.OFFER_LETTER,
+                fileUrl, fileName, pdf.length, "application/pdf",
+                "Regenerated on request"));
+
+        auditService.record("Offer Letter Generated", employee.getEmployeeId(), fullName);
+        return fileUrl;
+    }
+
+    private BigDecimal nvl(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 
     public List<ManagerOptionResponse> getManagerOptions() {

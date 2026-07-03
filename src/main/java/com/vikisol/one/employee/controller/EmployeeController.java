@@ -132,6 +132,14 @@ public class EmployeeController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Account role updated", employee));
     }
 
+    // Generates (or regenerates) an existing employee's offer letter PDF from their current record.
+    @PostMapping("/{id}/generate-offer-letter")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<String>> generateOfferLetter(@PathVariable UUID id) {
+        String fileUrl = employeeService.generateOfferLetter(id);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Offer letter generated", fileUrl));
+    }
+
     // Resets an employee's login password to a new temp password and emails it to them.
     @PostMapping("/{id}/reset-password")
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
