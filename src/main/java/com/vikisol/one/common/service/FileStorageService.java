@@ -37,6 +37,13 @@ public class FileStorageService {
         }
     }
 
+    // No file-type restriction existed before this - any authenticated user could upload any
+    // file type (executables, scripts, etc). This allowlist covers every use case in the app
+    // (profile photos, resumes, documents, assets, generated PDFs).
+    private static final java.util.Set<String> ALLOWED_EXTENSIONS = java.util.Set.of(
+            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".gif", ".webp"
+    );
+
     public String storeFile(MultipartFile file, String subDirectory) {
         if (file.isEmpty()) {
             throw new BadRequestException("File is empty");
@@ -45,7 +52,10 @@ public class FileStorageService {
         String originalFileName = file.getOriginalFilename();
         String extension = "";
         if (originalFileName != null && originalFileName.contains(".")) {
-            extension = originalFileName.substring(originalFileName.lastIndexOf("."));
+            extension = originalFileName.substring(originalFileName.lastIndexOf(".")).toLowerCase();
+        }
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new BadRequestException("File type not allowed. Supported: PDF, Word, Excel, and common image formats.");
         }
         String storedFileName = UUID.randomUUID() + extension;
 
