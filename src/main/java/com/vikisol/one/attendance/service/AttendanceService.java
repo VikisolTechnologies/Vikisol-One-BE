@@ -269,6 +269,12 @@ public class AttendanceService {
 
     private AttendanceResponse mapToResponse(Attendance a) {
         Employee emp = a.getEmployee();
+        // Still checked in (no checkout yet) - the persisted workingHours stays 0 until checkout,
+        // so compute the in-progress duration on the fly instead of reporting a stale 0 to the client.
+        double workingHours = a.getWorkingHours();
+        if (a.getCheckInTime() != null && a.getCheckOutTime() == null) {
+            workingHours = Math.round(Duration.between(a.getCheckInTime(), LocalTime.now()).toMinutes() / 60.0 * 100.0) / 100.0;
+        }
         return new AttendanceResponse(
                 a.getId(),
                 emp.getFirstName() + " " + emp.getLastName(),
@@ -277,7 +283,7 @@ public class AttendanceService {
                 a.getCheckInTime(),
                 a.getCheckOutTime(),
                 a.getStatus().name(),
-                a.getWorkingHours(),
+                workingHours,
                 a.getOvertimeHours(),
                 a.getSource().name(),
                 a.isRegularized()
