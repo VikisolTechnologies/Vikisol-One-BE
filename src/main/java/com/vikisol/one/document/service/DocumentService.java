@@ -116,6 +116,10 @@ public class DocumentService {
                     .timeout(Duration.ofSeconds(20)).GET().build();
             HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
+                org.slf4j.LoggerFactory.getLogger(DocumentService.class).warn(
+                        "Cloudinary fetch failed. storedUrl={} fetchUrl={} status={} error={}",
+                        document.getFileUrl(), fetchUrl, response.statusCode(),
+                        response.headers().firstValue("x-cld-error").orElse("n/a"));
                 throw new RuntimeException("Could not fetch stored file (status " + response.statusCode() + ")");
             }
             String fileName = document.getFileName() != null && !document.getFileName().isBlank()
