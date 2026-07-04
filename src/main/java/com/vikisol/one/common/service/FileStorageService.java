@@ -102,10 +102,19 @@ public class FileStorageService {
             // every generated document previously downloaded with no extension at all (a real
             // bug: browsers couldn't tell it was a PDF).
             String publicId = isImage ? UUID.randomUUID().toString() : UUID.randomUUID() + extension;
+            // Non-image files upload as Cloudinary's "authenticated" delivery type, not the
+            // default public "upload" type - confirmed live that a recognized-format raw file
+            // (a real PDF) uploaded as type=upload gets a 401 "deny or ACL failure" on ANY fetch,
+            // signed or not, because of this account's "Restricted media types" security setting.
+            // type=authenticated is a structurally different, non-public asset from the start,
+            // so a signed URL (built in buildSignedFetchUrl) reliably works regardless of that
+            // setting. Images stay on the default public type since nothing in the app fetches
+            // them through our own signed proxy - they're displayed directly via <img src>.
             Map<String, Object> options = ObjectUtils.asMap(
                     "folder", folder,
                     "public_id", publicId,
-                    "resource_type", isImage ? "image" : "raw"
+                    "resource_type", isImage ? "image" : "raw",
+                    "type", isImage ? "upload" : "authenticated"
             );
             Map<String, Object> result = cloudinary.uploader().upload(data, options);
             return (String) result.get("secure_url");
@@ -148,34 +157,38 @@ public class FileStorageService {
         try {
             boolean isImage = fileUrl.contains("/image/upload/");
             String publicId = parsePublicId(fileUrl, isImage);
-            cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", isImage ? "image" : "raw"));
+            Map<String, Object> options = isImage
+                    ? ObjectUtils.asMap("resource_type", "image")
+                    : ObjectUtils.asMap("resource_type", "raw", "type", "authenticated");
+            cloudinary.uploader().destroy(publicId, options);
         } catch (Exception e) {
             log.warn("Could not delete file from Cloudinary: {}", fileUrl, e);
         }
     }
 
-    // Cloudinary's "Restricted media types" account security setting (on by default for new
-    // accounts) blocks public/anonymous delivery of file types it recognizes as PDF/ZIP/etc -
-    // confirmed live: a plain fetch of a newly generated PDF's secure_url returned 401, while an
-    // older raw upload (created with no extension in its public_id, so Cloudinary couldn't
-    // classify its format) still worked. A signed URL bypasses that restriction entirely - this
-    // is Cloudinary's own documented workaround, and doesn't require any account/dashboard
-    // change, so our server (which already holds the API secret) can always fetch its own files.
+    // Non-image files are uploaded as Cloudinary's "authenticated" delivery type (see upload()) -
+    // a structurally non-public asset from the start, so a signed URL of this type reliably
+    // works regardless of the account's "Restricted media types" setting. (A signed URL for a
+    // plain public type=upload asset was tried first and still returned 401 live - that setting
+    // blocks recognized-format raw files at the public-delivery level regardless of signing.)
     public String buildSignedFetchUrl(String fileUrl) {
         boolean isImage = fileUrl.contains("/image/upload/");
         String publicId = parsePublicId(fileUrl, isImage);
-        return cloudinary.url()
-                .resourceType(isImage ? "image" : "raw")
-                .signed(true)
-                .generate(publicId);
+        var urlBuilder = cloudinary.url().resourceType(isImage ? "image" : "raw").signed(true);
+        if (!isImage) urlBuilder = urlBuilder.type("authenticated");
+        return urlBuilder.generate(publicId);
     }
 
     // Cloudinary separates public_id from format for images, but for resource_type=raw the
     // extension is part of the public_id itself (that's what makes raw downloads carry a real
     // .pdf extension - see upload() above) - so only images should have their extension stripped.
+    // Authenticated-type delivery URLs also embed a "s--SIGNATURE--/" segment before the version
+    // that plain "upload" type URLs don't have - strip it too if present.
     private String parsePublicId(String fileUrl, boolean isImage) {
-        String afterUpload = fileUrl.substring(fileUrl.indexOf("/upload/") + "/upload/".length());
-        String withoutVersion = afterUpload.replaceFirst("^v\\d+/", "");
+        String deliveryTypeMarker = fileUrl.contains("/authenticated/") ? "/authenticated/" : "/upload/";
+        String afterDeliveryType = fileUrl.substring(fileUrl.indexOf(deliveryTypeMarker) + deliveryTypeMarker.length());
+        String withoutSignature = afterDeliveryType.replaceFirst("^s--[A-Za-z0-9_-]+--/", "");
+        String withoutVersion = withoutSignature.replaceFirst("^v\\d+/", "");
         return (isImage && withoutVersion.contains("."))
                 ? withoutVersion.substring(0, withoutVersion.lastIndexOf("."))
                 : withoutVersion;
