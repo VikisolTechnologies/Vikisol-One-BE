@@ -4,13 +4,19 @@ import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.doctemplate.dto.DocumentTemplateRequest;
 import com.vikisol.one.doctemplate.dto.DocumentTemplateResponse;
 import com.vikisol.one.doctemplate.entity.DocumentTemplate;
+import com.vikisol.one.doctemplate.entity.TemplateVariable;
 import com.vikisol.one.doctemplate.repository.DocumentTemplateRepository;
+import com.vikisol.one.doctemplate.repository.TemplateVariableRepository;
 import com.vikisol.one.document.entity.Document;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 // "Document Studio" backend: lets CEO/HR Admin manage templates per document type without any
 // code change - creating a template for a brand-new document type just means adding an enum
@@ -21,7 +27,10 @@ import java.util.UUID;
 public class DocumentTemplateService {
 
     private final DocumentTemplateRepository templateRepository;
+    private final TemplateVariableRepository variableRepository;
     private final AuditService auditService;
+    private final BlockRenderer blockRenderer;
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{([A-Za-z]+)\\}\\}");
 
     public List<DocumentTemplateResponse> listByType(Document.DocumentType type) {
         return templateRepository.findByDocumentTypeOrderByNameAscVersionDesc(type).stream()
@@ -83,6 +92,7 @@ public class DocumentTemplateService {
     public DocumentTemplateResponse publish(UUID id) {
         DocumentTemplate template = templateRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Template not found"));
+        validateBeforePublish(template);
         List<DocumentTemplate> siblings = templateRepository.findByTemplateGroupIdOrderByVersionDesc(template.getTemplateGroupId());
         siblings.forEach(t -> {
             if (t.getStatus() == DocumentTemplate.TemplateStatus.PUBLISHED && !t.getId().equals(id)) {
@@ -129,6 +139,37 @@ public class DocumentTemplateService {
         copy = templateRepository.save(copy);
         auditService.record("Document Template Duplicated", source.getDocumentType().name(), source.getName() + " -> " + copy.getName());
         return toResponse(copy);
+    }
+
+    // Item #3 from the hardening request: a template can't go live with a typo'd or
+    // unregistered placeholder (e.g. {{EmployeName}}) - this is a structural check against the
+    // template's own text and the TemplateVariable registry, independent of any specific
+    // employee's data (that data-level check happens separately in
+    // DocumentGenerationService.assertNoUnresolvedPlaceholders at generation time).
+    private void validateBeforePublish(DocumentTemplate template) {
+        if ((template.getBodyHtml() == null || template.getBodyHtml().isBlank())
+                && (template.getContentBlocksJson() == null || template.getContentBlocksJson().isBlank())) {
+            throw new RuntimeException("Cannot publish an empty template - add content first");
+        }
+
+        String renderedText = template.getContentBlocksJson() != null && !template.getContentBlocksJson().isBlank()
+                ? blockRenderer.render(template.getContentBlocksJson())
+                : template.getBodyHtml();
+
+        Set<String> usedPlaceholders = new LinkedHashSet<>();
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(renderedText);
+        while (matcher.find()) usedPlaceholders.add(matcher.group(1));
+
+        Set<String> registeredKeys = new LinkedHashSet<>();
+        variableRepository.findByDocumentTypeIsNullOrDocumentType(template.getDocumentType())
+                .forEach(v -> registeredKeys.add(v.getKey()));
+
+        Set<String> unregistered = new LinkedHashSet<>(usedPlaceholders);
+        unregistered.removeAll(registeredKeys);
+        if (!unregistered.isEmpty()) {
+            throw new RuntimeException("Cannot publish '" + template.getName() + "': placeholder(s) "
+                    + unregistered + " are not registered - add them via Template Variables first, or fix the typo.");
+        }
     }
 
     private DocumentTemplateResponse toResponse(DocumentTemplate t) {

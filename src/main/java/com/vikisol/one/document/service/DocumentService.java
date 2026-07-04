@@ -1,6 +1,7 @@
 package com.vikisol.one.document.service;
 
 import com.vikisol.one.audit.service.AuditService;
+import com.vikisol.one.common.service.FileStorageService;
 import com.vikisol.one.document.dto.DocumentResponse;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
@@ -23,6 +24,7 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final FileStorageService fileStorageService;
 
     public DocumentResponse uploadDocument(DocumentUploadRequest request) {
         Employee employee = employeeRepository.findById(request.employeeId())
@@ -93,13 +95,22 @@ public class DocumentService {
                     .orElse(null);
         }
 
+        // Wrapped so every download - not just the one right after generation - gets the
+        // human-readable filename (e.g. "Offer_Letter_John_Doe_VIK-0007_2026-07-04.pdf")
+        // instead of the raw Cloudinary storage URL's UUID. Falls back to the stored fileName,
+        // or the document title, for documents uploaded before this existed.
+        String downloadName = document.getFileName() != null && !document.getFileName().isBlank()
+                ? document.getFileName()
+                : document.getTitle() + ".pdf";
+        String downloadUrl = fileStorageService.buildDownloadUrl(document.getFileUrl(), downloadName);
+
         return new DocumentResponse(
                 document.getId(),
                 document.getEmployee().getId(),
                 employeeName,
                 document.getTitle(),
                 document.getType(),
-                document.getFileUrl(),
+                downloadUrl,
                 document.getFileName(),
                 document.getFileSize(),
                 document.getMimeType(),

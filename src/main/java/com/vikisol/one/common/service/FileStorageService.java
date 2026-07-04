@@ -97,9 +97,14 @@ public class FileStorageService {
         try {
             boolean isImage = IMAGE_EXTENSIONS.contains(extension);
             String folder = resolveFolder(module, entityId, documentType);
+            // Raw resources (PDFs, docs) need the extension baked into public_id - Cloudinary
+            // derives the served file's extension from it for resource_type=raw, which is why
+            // every generated document previously downloaded with no extension at all (a real
+            // bug: browsers couldn't tell it was a PDF).
+            String publicId = isImage ? UUID.randomUUID().toString() : UUID.randomUUID() + extension;
             Map<String, Object> options = ObjectUtils.asMap(
                     "folder", folder,
-                    "public_id", UUID.randomUUID().toString(),
+                    "public_id", publicId,
                     "resource_type", isImage ? "image" : "raw"
             );
             Map<String, Object> result = cloudinary.uploader().upload(data, options);
@@ -107,6 +112,25 @@ public class FileStorageService {
         } catch (IOException e) {
             throw new RuntimeException("Could not upload file to Cloudinary", e);
         }
+    }
+
+    // Builds a download URL that makes the browser save the file with a human-readable name
+    // (e.g. "Offer_Letter_John_Doe_VIK-0007.pdf") instead of the raw Cloudinary storage path
+    // (which stays UUID-based internally - only the download experience changes). Uses
+    // Cloudinary's fl_attachment delivery flag so no proxying through our own server is needed.
+    public String buildDownloadUrl(String secureUrl, String downloadFileName) {
+        if (secureUrl == null || !secureUrl.contains("/upload/")) return secureUrl;
+        String sanitizedName = sanitizeFileName(downloadFileName);
+        String encoded = java.net.URLEncoder.encode(sanitizedName, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        return secureUrl.replaceFirst("/upload/", "/upload/fl_attachment:" + encoded + "/");
+    }
+
+    // Replaces anything that isn't a letter/digit/underscore/hyphen/dot with an underscore, and
+    // collapses repeats - keeps filenames safe for every OS and every browser's download dialog.
+    private String sanitizeFileName(String name) {
+        if (name == null || name.isBlank()) return "document";
+        String cleaned = name.trim().replaceAll("[^a-zA-Z0-9_.-]+", "_").replaceAll("_+", "_");
+        return cleaned.isBlank() ? "document" : cleaned;
     }
 
     // The single place all folder-path logic lives - see FileModule for what each case means.
@@ -141,15 +165,16 @@ public class FileStorageService {
     public void deleteFile(String fileUrl) {
         if (fileUrl == null || !fileUrl.contains("cloudinary.com")) return;
         try {
-            // Cloudinary public_id is the path after /upload/v<version>/ minus the extension,
-            // e.g. https://res.cloudinary.com/<cloud>/raw/upload/v123/vikisol-one/employees/VIK-0008/documents/<uuid>.pdf
-            //   -> public_id = vikisol-one/employees/VIK-0008/documents/<uuid>
+            // Cloudinary separates public_id from format for images, but for resource_type=raw
+            // the extension is part of the public_id itself (that's what makes raw downloads
+            // carry a real .pdf extension - see upload() above) - so only images should have
+            // their extension stripped before calling destroy().
             String afterUpload = fileUrl.substring(fileUrl.indexOf("/upload/") + "/upload/".length());
             String withoutVersion = afterUpload.replaceFirst("^v\\d+/", "");
-            String publicId = withoutVersion.contains(".")
+            boolean isImage = fileUrl.contains("/image/upload/");
+            String publicId = (isImage && withoutVersion.contains("."))
                     ? withoutVersion.substring(0, withoutVersion.lastIndexOf("."))
                     : withoutVersion;
-            boolean isImage = fileUrl.contains("/image/upload/");
             cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", isImage ? "image" : "raw"));
         } catch (Exception e) {
             log.warn("Could not delete file from Cloudinary: {}", fileUrl, e);

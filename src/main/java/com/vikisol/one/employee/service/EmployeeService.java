@@ -331,16 +331,18 @@ public class EmployeeService {
                 reportingManagerName, java.time.LocalDate.now());
         byte[] pdf = pdfService.renderPdf(pdfHtml);
 
-        String fileName = "Offer_Letter_" + employee.getEmployeeId() + ".pdf";
-        String fileUrl = fileStorageService.storeBytes(pdf, fileName,
+        String storageFileName = "Offer_Letter_" + employee.getEmployeeId() + ".pdf";
+        String downloadFileName = "Offer_Letter_%s_%s_%s.pdf".formatted(
+                fullName.replaceAll("[^a-zA-Z0-9]+", "_"), employee.getEmployeeId(), java.time.LocalDate.now());
+        String fileUrl = fileStorageService.storeBytes(pdf, storageFileName,
                 FileModule.EMPLOYEE, employee.getEmployeeId(), "offer-letters");
         documentService.uploadDocument(new DocumentUploadRequest(
                 employee.getId(), "Offer Letter", Document.DocumentType.OFFER_LETTER,
-                fileUrl, fileName, pdf.length, "application/pdf",
+                fileUrl, downloadFileName, pdf.length, "application/pdf",
                 "Regenerated on request"));
 
         auditService.record("Offer Letter Generated", employee.getEmployeeId(), fullName);
-        return fileUrl;
+        return fileStorageService.buildDownloadUrl(fileUrl, downloadFileName);
     }
 
     // Uses the reusable Document Studio engine (DocumentGenerationService) rather than a

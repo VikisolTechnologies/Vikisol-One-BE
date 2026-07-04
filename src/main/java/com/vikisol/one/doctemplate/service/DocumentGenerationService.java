@@ -65,8 +65,24 @@ public class DocumentGenerationService {
                 ? blockRenderer.render(template.getContentBlocksJson())
                 : template.getBodyHtml();
         String body = substitute(templateBody, allFields);
+        assertNoUnresolvedPlaceholders(body, template.getName());
         String fullHtml = wrapWithChrome(body, branding);
         return pdfService.renderPdf(fullHtml);
+    }
+
+    // Safety net independent of any specific caller's field-building logic: if ANY {{Token}}
+    // survives substitution - a missing key, a typo in the template, a future document type
+    // whose caller forgot a field - generation fails loudly with the exact missing variable(s)
+    // named, instead of silently shipping a PDF with a literal "{{ManagerName}}" in it (a real
+    // bug this caught: JOINING_LETTER/LEAVE_APPROVAL_LETTER for employees with no manager set).
+    private void assertNoUnresolvedPlaceholders(String html, String templateName) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([A-Za-z]+)\\}\\}").matcher(html);
+        java.util.Set<String> missing = new java.util.LinkedHashSet<>();
+        while (matcher.find()) missing.add(matcher.group(1));
+        if (!missing.isEmpty()) {
+            throw new RuntimeException("Cannot generate '" + templateName + "': missing value(s) for " + missing
+                    + " - supply these fields or update the template.");
+        }
     }
 
     public byte[] render(Document.DocumentType type, Map<String, String> fields) {
@@ -106,22 +122,38 @@ public class DocumentGenerationService {
         fields.put("JoiningDate", employee.getDateOfJoining() != null ? employee.getDateOfJoining().format(DISPLAY_DATE) : "");
         fields.put("Salary", employee.getCtc() != null ? employee.getCtc().toPlainString() : "");
         fields.put("WorkLocation", employee.getCity() != null ? employee.getCity() : "");
+        // Always set the key, even with no manager - a real prod bug (found via actual PDF
+        // content inspection, not just an HTTP 200 check) was a literal unresolved
+        // "{{ManagerName}}" left in Joining/Leave Approval letters for employees without a
+        // reporting manager, because this key was previously absent from the map entirely.
+        String managerName = "";
         if (employee.getReportingManagerId() != null && managerLookup != null) {
             Employee manager = managerLookup.apply(employee.getReportingManagerId());
-            fields.put("ManagerName", manager != null ? manager.getFirstName() + " " + manager.getLastName() : "");
+            managerName = manager != null ? manager.getFirstName() + " " + manager.getLastName() : "";
         }
+        fields.put("ManagerName", managerName);
         return fields;
     }
 
+    // Returns a download URL with a human-readable filename (e.g.
+    // "Offer_Letter_John_Doe_VIK-0007_2026-07-04.pdf") - internal Cloudinary storage still uses
+    // a UUID public_id (see FileStorageService), but nobody should ever see that UUID: not in
+    // the downloaded file's name, not in the browser's save dialog.
     public String generateAndStore(Document.DocumentType type, UUID templateId, Map<String, String> fields, Employee employee, String documentTitle) {
         byte[] pdf = render(type, templateId, fields);
+        String employeeFullName = employee.getFirstName() + " " + employee.getLastName();
         String fileName = documentTitle.replaceAll("[^a-zA-Z0-9]+", "_") + "_" + employee.getEmployeeId() + ".pdf";
+        String downloadFileName = "%s_%s_%s_%s.pdf".formatted(
+                documentTitle.replaceAll("[^a-zA-Z0-9]+", "_"),
+                employeeFullName.replaceAll("[^a-zA-Z0-9]+", "_"),
+                employee.getEmployeeId(),
+                LocalDate.now());
         String folderSlug = type.name().toLowerCase().replace('_', '-') + "s";
         String fileUrl = fileStorageService.storeBytes(pdf, fileName, FileModule.EMPLOYEE, employee.getEmployeeId(), folderSlug);
         documentService.uploadDocument(new DocumentUploadRequest(
-                employee.getId(), documentTitle, type, fileUrl, fileName, pdf.length, "application/pdf",
+                employee.getId(), documentTitle, type, fileUrl, downloadFileName, pdf.length, "application/pdf",
                 "Generated via Document Studio"));
-        return fileUrl;
+        return fileStorageService.buildDownloadUrl(fileUrl, downloadFileName);
     }
 
     private String substitute(String html, Map<String, String> fields) {
