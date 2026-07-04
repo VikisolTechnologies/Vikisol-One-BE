@@ -171,11 +171,19 @@ public class FileStorageService {
     // works regardless of the account's "Restricted media types" setting. (A signed URL for a
     // plain public type=upload asset was tried first and still returned 401 live - that setting
     // blocks recognized-format raw files at the public-delivery level regardless of signing.)
+    //
+    // The asset's real version MUST be passed explicitly - omitting it made the SDK default to
+    // "v1" in the generated URL, which doesn't match the actual stored version and therefore
+    // signs incorrectly, producing exactly the same "401 deny or ACL failure" as no signature at
+    // all (confirmed live: the generated URL literally read ".../v1/..." instead of the real
+    // version like ".../v1783194458/...").
     public String buildSignedFetchUrl(String fileUrl) {
         boolean isImage = fileUrl.contains("/image/upload/");
         String publicId = parsePublicId(fileUrl, isImage);
+        String version = parseVersion(fileUrl);
         var urlBuilder = cloudinary.url().resourceType(isImage ? "image" : "raw").signed(true);
         if (!isImage) urlBuilder = urlBuilder.type("authenticated");
+        if (version != null) urlBuilder = urlBuilder.version(version);
         return urlBuilder.generate(publicId);
     }
 
@@ -185,12 +193,21 @@ public class FileStorageService {
     // Authenticated-type delivery URLs also embed a "s--SIGNATURE--/" segment before the version
     // that plain "upload" type URLs don't have - strip it too if present.
     private String parsePublicId(String fileUrl, boolean isImage) {
-        String deliveryTypeMarker = fileUrl.contains("/authenticated/") ? "/authenticated/" : "/upload/";
-        String afterDeliveryType = fileUrl.substring(fileUrl.indexOf(deliveryTypeMarker) + deliveryTypeMarker.length());
-        String withoutSignature = afterDeliveryType.replaceFirst("^s--[A-Za-z0-9_-]+--/", "");
-        String withoutVersion = withoutSignature.replaceFirst("^v\\d+/", "");
+        String afterDeliveryType = stripToVersionSegment(fileUrl);
+        String withoutVersion = afterDeliveryType.replaceFirst("^v\\d+/", "");
         return (isImage && withoutVersion.contains("."))
                 ? withoutVersion.substring(0, withoutVersion.lastIndexOf("."))
                 : withoutVersion;
+    }
+
+    private String parseVersion(String fileUrl) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("/v(\\d+)/").matcher(stripToVersionSegment(fileUrl));
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String stripToVersionSegment(String fileUrl) {
+        String deliveryTypeMarker = fileUrl.contains("/authenticated/") ? "/authenticated/" : "/upload/";
+        String afterDeliveryType = fileUrl.substring(fileUrl.indexOf(deliveryTypeMarker) + deliveryTypeMarker.length());
+        return afterDeliveryType.replaceFirst("^s--[A-Za-z0-9_-]+--/", "");
     }
 }
