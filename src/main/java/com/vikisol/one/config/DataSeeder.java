@@ -78,6 +78,12 @@ public class DataSeeder implements CommandLineRunner {
         // violation in prod. Drop it explicitly - the entity itself no longer declares it.
         dropNotNullConstraint("document_templates", "body_html");
 
+        // is_active was the original boolean column before it was replaced by the `status` enum
+        // column - ddl-auto=update leaves orphaned columns in place indefinitely (it only adds,
+        // never drops/alters), so this stale NOT NULL column kept rejecting every insert even
+        // after the Java field was gone. Drop the column outright since nothing reads it anymore.
+        dropColumn("document_templates", "is_active");
+
         // Managers were briefly granted the "new-hires" (offer approval) module - that's now HR-only.
         // A stored override for any module on a role bypasses the whole DEFAULTS fallback, so this
         // stale row must be removed explicitly rather than relying on the code default alone.
@@ -134,6 +140,16 @@ public class DataSeeder implements CommandLineRunner {
                     .executeUpdate();
         } catch (Exception e) {
             log.warn("Could not drop NOT NULL on {}.{}: {}", table, column, e.getMessage());
+        }
+    }
+
+    private void dropColumn(String table, String column) {
+        try {
+            entityManager.createNativeQuery(
+                    "ALTER TABLE " + table + " DROP COLUMN IF EXISTS " + column)
+                    .executeUpdate();
+        } catch (Exception e) {
+            log.warn("Could not drop column {}.{}: {}", table, column, e.getMessage());
         }
     }
 
