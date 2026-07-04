@@ -201,7 +201,10 @@ public class FileStorageService {
     }
 
     private String parseVersion(String fileUrl) {
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("/v(\\d+)/").matcher(stripToVersionSegment(fileUrl));
+        // stripToVersionSegment already consumes the leading "/" before the version segment
+        // (it strips up through "/authenticated/" or "/upload/" and the signature), so the
+        // remaining string starts directly with "v<digits>/" - anchored at start, no leading "/".
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("^v(\\d+)/").matcher(stripToVersionSegment(fileUrl));
         return matcher.find() ? matcher.group(1) : null;
     }
 
