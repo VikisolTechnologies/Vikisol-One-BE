@@ -6,6 +6,9 @@ import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
 import com.vikisol.one.designation.repository.DesignationRepository;
+import com.vikisol.one.doctemplate.entity.DocumentTemplate;
+import com.vikisol.one.doctemplate.repository.DocumentTemplateRepository;
+import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.leave.entity.LeaveType;
@@ -45,6 +48,7 @@ public class DataSeeder implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
     private final ScheduledTasks scheduledTasks;
+    private final DocumentTemplateRepository documentTemplateRepository;
 
     @Override
     @Transactional
@@ -76,6 +80,11 @@ public class DataSeeder implements CommandLineRunner {
         }
         // Always run — idempotent, links any user that lacks an Employee record
         seedEmployeesForUsers();
+
+        // Always run — idempotent, only inserts a default template for a document type if none
+        // exists yet. Lets Document Studio ship with working templates out of the box instead of
+        // every document type failing with "no active template" until an admin manually creates one.
+        seedDocumentTemplates();
 
         // initializeYearlyLeaveBalances() only ran via @Scheduled(cron = "0 0 0 1 1 *") - literally
         // only at midnight Jan 1st. Since this app has never been running at that exact moment,
@@ -242,6 +251,83 @@ public class DataSeeder implements CommandLineRunner {
         h.setYear(year);
         h.setOptional(type == HolidayType.OPTIONAL);
         holidayRepository.save(h);
+    }
+
+    // Seeds one default, working template per document type Document Studio ships with - each
+    // uses the same {{Placeholder}} + shared-chrome engine as every other template, so these are
+    // just data, not special-cased Java code. An admin can create new versions/types later
+    // without touching this method.
+    private void seedDocumentTemplates() {
+        seedTemplateIfMissing(Document.DocumentType.EXPERIENCE_LETTER, "Standard Experience Letter",
+                "<h1 style=\"font-size:18px;letter-spacing:1px;text-align:center;margin:0 0 4px;\">EXPERIENCE LETTER</h1>"
+                + "<p style=\"text-align:center;color:#777;font-size:11px;margin:0 0 28px;\">Date: {{CurrentDate}}</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">To Whomsoever It May Concern,</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">This is to certify that <b>{{EmployeeName}}</b> (Employee ID: <b>{{EmployeeID}}</b>) was employed with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> in the <b>{{Department}}</b> department from <b>{{JoiningDate}}</b> to <b>{{LastWorkingDate}}</b>.</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">During this tenure, we found {{EmployeeName}} to be sincere, hardworking, and professional in conduct. We wish {{EmployeeName}} success in all future endeavors.</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 32px;\">This certificate is issued upon request for whatever purpose it may serve.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"font-size:11px;\">For <b>{{CompanyName}}</b><br/><br/><br/>_____________________<br/>{{HRName}}<br/>Human Resources</td></tr></table>");
+
+        seedTemplateIfMissing(Document.DocumentType.RELIEVING_LETTER, "Standard Relieving Letter",
+                "<h1 style=\"font-size:18px;letter-spacing:1px;text-align:center;margin:0 0 4px;\">RELIEVING LETTER</h1>"
+                + "<p style=\"text-align:center;color:#777;font-size:11px;margin:0 0 28px;\">Date: {{CurrentDate}}</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">Dear {{EmployeeName}},</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">This is to confirm that your resignation from the position of <b>{{Designation}}</b> at <b>{{CompanyName}}</b> has been accepted, and you are relieved of your duties effective <b>{{LastWorkingDate}}</b>.</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">Your Employee ID <b>{{EmployeeID}}</b> stands closed as of this date. All dues, if any, will be settled as per the Full &amp; Final settlement process.</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 32px;\">We thank you for your contribution during your tenure and wish you the very best in your future endeavors.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"font-size:11px;\">For <b>{{CompanyName}}</b><br/><br/><br/>_____________________<br/>{{HRName}}<br/>Human Resources</td></tr></table>");
+
+        seedTemplateIfMissing(Document.DocumentType.SALARY_CERTIFICATE, "Standard Salary Certificate",
+                "<h1 style=\"font-size:18px;letter-spacing:1px;text-align:center;margin:0 0 4px;\">SALARY CERTIFICATE</h1>"
+                + "<p style=\"text-align:center;color:#777;font-size:11px;margin:0 0 28px;\">Date: {{CurrentDate}}</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">To Whomsoever It May Concern,</p>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">This is to certify that <b>{{EmployeeName}}</b> (Employee ID: <b>{{EmployeeID}}</b>) is employed with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> in the <b>{{Department}}</b> department since <b>{{JoiningDate}}</b>.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:6px;padding:14px 18px;margin:0 0 20px;\">"
+                + "<tr><td colspan=\"2\" style=\"padding-bottom:8px;\"><b style=\"font-size:12px;\">Compensation Details</b></td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Monthly Gross Salary</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">Rs. {{MonthlyGross}}</td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Annual CTC</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">Rs. {{AnnualCTC}}</td></tr>"
+                + "</table>"
+                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 32px;\">This certificate is issued upon the employee's request for whatever purpose it may serve.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"font-size:11px;\">For <b>{{CompanyName}}</b><br/><br/><br/>_____________________<br/>{{HRName}}<br/>Human Resources</td></tr></table>");
+
+        seedTemplateIfMissing(Document.DocumentType.PAYSLIP, "Standard Payslip",
+                "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
+                + "<td><h2 style=\"font-size:15px;margin:0;\">PAYSLIP</h2><p style=\"font-size:11px;color:#777;margin:2px 0 0;\">{{PayPeriod}}</p></td>"
+                + "<td style=\"text-align:right;font-size:11px;color:#777;\">Generated: {{CurrentDate}}</td>"
+                + "</tr></table><hr style=\"border:none;border-top:1px solid #eee;margin:14px 0;\"/>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:0 0 20px;\">"
+                + "<tr><td style=\"font-size:11px;color:#666;width:25%;\">Employee</td><td style=\"font-size:11px;font-weight:bold;width:25%;\">{{EmployeeName}}</td>"
+                + "<td style=\"font-size:11px;color:#666;width:25%;\">Employee ID</td><td style=\"font-size:11px;font-weight:bold;width:25%;\">{{EmployeeID}}</td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;\">Department</td><td style=\"font-size:11px;font-weight:bold;\">{{Department}}</td>"
+                + "<td style=\"font-size:11px;color:#666;\">Designation</td><td style=\"font-size:11px;font-weight:bold;\">{{Designation}}</td></tr>"
+                + "<tr><td style=\"font-size:11px;color:#666;\">Working Days</td><td style=\"font-size:11px;font-weight:bold;\">{{WorkingDays}}</td>"
+                + "<td style=\"font-size:11px;color:#666;\">Paid Days</td><td style=\"font-size:11px;font-weight:bold;\">{{PaidDays}}</td></tr>"
+                + "</table>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
+                + "<td width=\"50%\" style=\"vertical-align:top;padding-right:12px;\"><p style=\"font-size:12px;font-weight:bold;margin:0 0 8px;\">Earnings</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">{{EarningsRows}}"
+                + "<tr><td style=\"padding:6px 0;font-size:11px;font-weight:bold;border-top:1px solid #ccc;\">Gross Earnings</td><td style=\"padding:6px 0;font-size:11px;font-weight:bold;text-align:right;border-top:1px solid #ccc;\">Rs. {{GrossEarnings}}</td></tr>"
+                + "</table></td>"
+                + "<td width=\"50%\" style=\"vertical-align:top;padding-left:12px;\"><p style=\"font-size:12px;font-weight:bold;margin:0 0 8px;\">Deductions</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">{{DeductionsRows}}"
+                + "<tr><td style=\"padding:6px 0;font-size:11px;font-weight:bold;border-top:1px solid #ccc;\">Total Deductions</td><td style=\"padding:6px 0;font-size:11px;font-weight:bold;text-align:right;border-top:1px solid #ccc;\">Rs. {{TotalDeductions}}</td></tr>"
+                + "</table></td>"
+                + "</tr></table>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:6px;margin:20px 0 0;\"><tr>"
+                + "<td style=\"padding:14px 18px;font-size:13px;font-weight:bold;\">Net Salary Payable</td>"
+                + "<td style=\"padding:14px 18px;font-size:15px;font-weight:bold;text-align:right;\">Rs. {{NetSalary}}</td>"
+                + "</tr></table>");
+    }
+
+    private void seedTemplateIfMissing(Document.DocumentType type, String name, String bodyHtml) {
+        if (!documentTemplateRepository.findByDocumentType(type).isEmpty()) return;
+        documentTemplateRepository.save(DocumentTemplate.builder()
+                .documentType(type)
+                .name(name)
+                .version(1)
+                .isActive(true)
+                .bodyHtml(bodyHtml)
+                .createdByEmail("system-seed")
+                .build());
     }
 
     private void seedEmployeesForUsers() {

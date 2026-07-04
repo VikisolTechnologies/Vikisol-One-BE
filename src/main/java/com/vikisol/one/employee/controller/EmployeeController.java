@@ -140,6 +140,20 @@ public class EmployeeController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Offer letter generated", fileUrl));
     }
 
+    @PostMapping("/{id}/generate-experience-letter")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<String>> generateExperienceLetter(@PathVariable UUID id) {
+        String fileUrl = employeeService.generateExperienceLetter(id);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Experience letter generated", fileUrl));
+    }
+
+    @PostMapping("/{id}/generate-relieving-letter")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<String>> generateRelievingLetter(@PathVariable UUID id) {
+        String fileUrl = employeeService.generateRelievingLetter(id);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Relieving letter generated", fileUrl));
+    }
+
     // Resets an employee's login password to a new temp password and emails it to them.
     @PostMapping("/{id}/reset-password")
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")

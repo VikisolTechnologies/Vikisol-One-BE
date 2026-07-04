@@ -2,6 +2,8 @@ package com.vikisol.one.payroll.service;
 
 import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.dto.PagedResponse;
+import com.vikisol.one.doctemplate.service.DocumentGenerationService;
+import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.payroll.dto.*;
@@ -39,6 +41,7 @@ public class PayrollService {
     private final SalaryAdvanceRepository salaryAdvanceRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final DocumentGenerationService documentGenerationService;
 
     // ── Config ──────────────────────────────────────────────────────────────
 
@@ -321,6 +324,81 @@ public class PayrollService {
                 page.getTotalPages(),
                 page.isLast()
         );
+    }
+
+    // Builds a real branded PDF for a payslip via the Document Studio engine, stores it, and
+    // returns the download URL. principal is used only to enforce that an EMPLOYEE-role caller
+    // can only ever generate their own payslip; HR/Finance/CEO/Admin can generate anyone's.
+    public String generatePayslipPdf(UUID payslipId, UserPrincipal principal) {
+        Payslip payslip = payslipRepository.findById(payslipId)
+                .orElseThrow(() -> new EntityNotFoundException("Payslip not found"));
+        Employee employee = payslip.getEmployee();
+
+        boolean isPrivileged = principal.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER")
+                        || a.getAuthority().equals("ROLE_FINANCE") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isPrivileged) {
+            Employee callerEmployee = employeeRepository.findByUserId(principal.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Employee not found"));
+            if (!callerEmployee.getId().equals(employee.getId())) {
+                throw new RuntimeException("You can only download your own payslip");
+            }
+        }
+
+        String fullName = employee.getFirstName() + " " + employee.getLastName();
+        String departmentName = employee.getDepartment() != null ? employee.getDepartment().getName() : "";
+        String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "";
+        String monthName = java.time.Month.of(payslip.getMonth()).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH);
+
+        java.util.Map<String, java.math.BigDecimal> earnings = new java.util.LinkedHashMap<>();
+        earnings.put("Basic Salary", payslip.getBasicSalary());
+        earnings.put("HRA", payslip.getHra());
+        earnings.put("Conveyance Allowance", payslip.getConveyanceAllowance());
+        earnings.put("Medical Allowance", payslip.getMedicalAllowance());
+        earnings.put("Special Allowance", payslip.getSpecialAllowance());
+        if (defaultZero(payslip.getOtherEarnings()).compareTo(BigDecimal.ZERO) > 0) {
+            earnings.put("Other Earnings", payslip.getOtherEarnings());
+        }
+
+        java.util.Map<String, java.math.BigDecimal> deductions = new java.util.LinkedHashMap<>();
+        deductions.put("Provident Fund", payslip.getPfEmployee());
+        if (defaultZero(payslip.getEsiEmployee()).compareTo(BigDecimal.ZERO) > 0) {
+            deductions.put("ESI", payslip.getEsiEmployee());
+        }
+        deductions.put("Professional Tax", payslip.getProfessionalTax());
+        deductions.put("Income Tax (TDS)", payslip.getTds());
+        if (defaultZero(payslip.getLopDeduction()).compareTo(BigDecimal.ZERO) > 0) {
+            deductions.put("LOP (" + payslip.getLopDays() + " days)", payslip.getLopDeduction());
+        }
+
+        java.util.Map<String, String> fields = new java.util.LinkedHashMap<>();
+        fields.put("EmployeeName", fullName);
+        fields.put("EmployeeID", employee.getEmployeeId());
+        fields.put("Department", departmentName);
+        fields.put("Designation", designationTitle);
+        fields.put("PayPeriod", monthName + " " + payslip.getYear());
+        fields.put("WorkingDays", String.valueOf(payslip.getWorkingDays()));
+        fields.put("PaidDays", String.valueOf(payslip.getPaidDays()));
+        fields.put("EarningsRows", buildAmountRows(earnings));
+        fields.put("DeductionsRows", buildAmountRows(deductions));
+        fields.put("GrossEarnings", payslip.getGrossEarnings().toPlainString());
+        fields.put("TotalDeductions", payslip.getTotalDeductions().toPlainString());
+        fields.put("NetSalary", payslip.getNetSalary().toPlainString());
+
+        String title = "Payslip - " + monthName + " " + payslip.getYear();
+        String fileUrl = documentGenerationService.generateAndStore(Document.DocumentType.PAYSLIP, fields, employee, title);
+        auditService.record("Payslip PDF Generated", employee.getEmployeeId(), title);
+        return fileUrl;
+    }
+
+    private String buildAmountRows(java.util.Map<String, java.math.BigDecimal> rows) {
+        StringBuilder sb = new StringBuilder();
+        rows.forEach((label, amount) -> sb.append("<tr><td style=\"padding:4px 0;font-size:11px;color:#444;\">")
+                .append(label)
+                .append("</td><td style=\"padding:4px 0;font-size:11px;text-align:right;\">Rs. ")
+                .append(amount)
+                .append("</td></tr>"));
+        return sb.toString();
     }
 
     @Transactional(readOnly = true)

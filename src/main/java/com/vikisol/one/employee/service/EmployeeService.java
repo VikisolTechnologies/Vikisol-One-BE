@@ -10,6 +10,7 @@ import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
 import com.vikisol.one.designation.repository.DesignationRepository;
+import com.vikisol.one.doctemplate.service.DocumentGenerationService;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.document.service.DocumentService;
@@ -57,6 +58,7 @@ public class EmployeeService {
     private final PdfService pdfService;
     private final FileStorageService fileStorageService;
     private final DocumentService documentService;
+    private final DocumentGenerationService documentGenerationService;
 
     private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -338,6 +340,50 @@ public class EmployeeService {
                 "Regenerated on request"));
 
         auditService.record("Offer Letter Generated", employee.getEmployeeId(), fullName);
+        return fileUrl;
+    }
+
+    // Uses the reusable Document Studio engine (DocumentGenerationService) rather than a
+    // hand-written PDF builder like generateOfferLetter's - this is the pattern any future
+    // document type should follow: build a placeholder map, call generateAndStore().
+    public String generateExperienceLetter(UUID employeeId) {
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        String fullName = employee.getFirstName() + " " + employee.getLastName();
+        String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "";
+        String departmentName = employee.getDepartment() != null ? employee.getDepartment().getName() : "";
+
+        Map<String, String> fields = Map.of(
+                "EmployeeName", fullName,
+                "EmployeeID", employee.getEmployeeId(),
+                "Designation", designationTitle,
+                "Department", departmentName,
+                "JoiningDate", employee.getDateOfJoining() != null ? employee.getDateOfJoining().toString() : "",
+                "LastWorkingDate", java.time.LocalDate.now().toString()
+        );
+
+        String fileUrl = documentGenerationService.generateAndStore(
+                Document.DocumentType.EXPERIENCE_LETTER, fields, employee, "Experience Letter");
+        auditService.record("Experience Letter Generated", employee.getEmployeeId(), fullName);
+        return fileUrl;
+    }
+
+    public String generateRelievingLetter(UUID employeeId) {
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        String fullName = employee.getFirstName() + " " + employee.getLastName();
+        String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "";
+
+        Map<String, String> fields = Map.of(
+                "EmployeeName", fullName,
+                "EmployeeID", employee.getEmployeeId(),
+                "Designation", designationTitle,
+                "LastWorkingDate", java.time.LocalDate.now().toString()
+        );
+
+        String fileUrl = documentGenerationService.generateAndStore(
+                Document.DocumentType.RELIEVING_LETTER, fields, employee, "Relieving Letter");
+        auditService.record("Relieving Letter Generated", employee.getEmployeeId(), fullName);
         return fileUrl;
     }
 

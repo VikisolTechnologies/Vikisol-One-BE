@@ -74,6 +74,13 @@ public class PayrollController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Payslips retrieved", payslips));
     }
 
+    @PostMapping("/payslip/{payslipId}/generate-pdf")
+    public ResponseEntity<ApiResponse<String>> generatePayslipPdf(
+            @PathVariable UUID payslipId, @AuthenticationPrincipal UserPrincipal principal) {
+        String fileUrl = payrollService.generatePayslipPdf(payslipId, principal);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Payslip PDF generated", fileUrl));
+    }
+
     @GetMapping("/summary")
     @PreAuthorize("hasAnyRole('HR_MANAGER', 'FINANCE', 'CEO')")
     public ResponseEntity<ApiResponse<PayrollSummaryResponse>> getPayrollSummary(
