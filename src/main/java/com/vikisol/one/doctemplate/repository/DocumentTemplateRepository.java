@@ -9,7 +9,17 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface DocumentTemplateRepository extends JpaRepository<DocumentTemplate, UUID> {
-    Optional<DocumentTemplate> findFirstByDocumentTypeAndIsActiveTrueOrderByVersionDesc(Document.DocumentType documentType);
-    List<DocumentTemplate> findByDocumentTypeOrderByVersionDesc(Document.DocumentType documentType);
-    List<DocumentTemplate> findByDocumentType(Document.DocumentType documentType);
+    // The template used for generation when the caller doesn't ask for a specific templateId -
+    // the most recent PUBLISHED version of the first/default template for that document type.
+    Optional<DocumentTemplate> findFirstByDocumentTypeAndStatusOrderByVersionDesc(
+            Document.DocumentType documentType, DocumentTemplate.TemplateStatus status);
+
+    Optional<DocumentTemplate> findFirstByTemplateGroupIdAndStatusOrderByVersionDesc(
+            String templateGroupId, DocumentTemplate.TemplateStatus status);
+
+    List<DocumentTemplate> findByDocumentTypeOrderByNameAscVersionDesc(Document.DocumentType documentType);
+
+    List<DocumentTemplate> findByTemplateGroupIdOrderByVersionDesc(String templateGroupId);
+
+    boolean existsByDocumentType(Document.DocumentType documentType);
 }

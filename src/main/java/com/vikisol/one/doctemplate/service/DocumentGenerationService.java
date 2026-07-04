@@ -38,13 +38,18 @@ public class DocumentGenerationService {
     private final PdfService pdfService;
     private final FileStorageService fileStorageService;
     private final DocumentService documentService;
+    private final BlockRenderer blockRenderer;
 
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter.ofPattern("dd MMM yyyy");
 
-    /** Renders a document type's active template with the given field values into a PDF. */
-    public byte[] render(Document.DocumentType type, Map<String, String> fields) {
-        DocumentTemplate template = templateRepository.findFirstByDocumentTypeAndIsActiveTrueOrderByVersionDesc(type)
-                .orElseThrow(() -> new RuntimeException("No active template configured for " + type + " yet - create one in Document Studio"));
+    /**
+     * Renders a document into a PDF. If templateId is null, uses the most recently published
+     * template for the document type; otherwise renders that specific template (still requires
+     * it to be PUBLISHED) - this is what lets a caller pick between e.g. "Corporate Offer Letter"
+     * and "Intern Offer Letter" for the same document type.
+     */
+    public byte[] render(Document.DocumentType type, UUID templateId, Map<String, String> fields) {
+        DocumentTemplate template = resolveTemplate(type, templateId);
 
         BrandingDto branding = brandingService.getBranding();
         Map<String, String> allFields = new LinkedHashMap<>();
@@ -56,14 +61,60 @@ public class DocumentGenerationService {
         allFields.put("CurrentDate", LocalDate.now().format(DISPLAY_DATE));
         allFields.putAll(fields); // caller-supplied values win over the branding defaults above
 
-        String body = substitute(template.getBodyHtml(), allFields);
+        String templateBody = template.getContentBlocksJson() != null && !template.getContentBlocksJson().isBlank()
+                ? blockRenderer.render(template.getContentBlocksJson())
+                : template.getBodyHtml();
+        String body = substitute(templateBody, allFields);
         String fullHtml = wrapWithChrome(body, branding);
         return pdfService.renderPdf(fullHtml);
     }
 
+    public byte[] render(Document.DocumentType type, Map<String, String> fields) {
+        return render(type, null, fields);
+    }
+
+    private DocumentTemplate resolveTemplate(Document.DocumentType type, UUID templateId) {
+        if (templateId != null) {
+            DocumentTemplate template = templateRepository.findById(templateId)
+                    .orElseThrow(() -> new RuntimeException("Template not found"));
+            if (template.getStatus() != DocumentTemplate.TemplateStatus.PUBLISHED) {
+                throw new RuntimeException("Template '" + template.getName() + "' is not published");
+            }
+            return template;
+        }
+        return templateRepository.findFirstByDocumentTypeAndStatusOrderByVersionDesc(type, DocumentTemplate.TemplateStatus.PUBLISHED)
+                .orElseThrow(() -> new RuntimeException("No published template configured for " + type + " yet - create one in Document Studio"));
+    }
+
     /** Renders, stores in Cloudinary, and records a Document entry for the given employee. */
     public String generateAndStore(Document.DocumentType type, Map<String, String> fields, Employee employee, String documentTitle) {
-        byte[] pdf = render(type, fields);
+        return generateAndStore(type, null, fields, employee, documentTitle);
+    }
+
+    /**
+     * Standard fields resolvable from an Employee record alone - callers building any new
+     * document type can start from this map and just add type-specific fields on top
+     * (e.g. {"Reason": "...", "NewDesignation": "..."} for a Promotion Letter), instead of
+     * re-deriving EmployeeName/Designation/Department/etc every time.
+     */
+    public Map<String, String> standardFieldsFor(Employee employee, java.util.function.Function<UUID, Employee> managerLookup) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("EmployeeName", employee.getFirstName() + " " + employee.getLastName());
+        fields.put("EmployeeID", employee.getEmployeeId());
+        fields.put("Designation", employee.getDesignation() != null ? employee.getDesignation().getTitle() : "");
+        fields.put("Department", employee.getDepartment() != null ? employee.getDepartment().getName() : "");
+        fields.put("JoiningDate", employee.getDateOfJoining() != null ? employee.getDateOfJoining().format(DISPLAY_DATE) : "");
+        fields.put("Salary", employee.getCtc() != null ? employee.getCtc().toPlainString() : "");
+        fields.put("WorkLocation", employee.getCity() != null ? employee.getCity() : "");
+        if (employee.getReportingManagerId() != null && managerLookup != null) {
+            Employee manager = managerLookup.apply(employee.getReportingManagerId());
+            fields.put("ManagerName", manager != null ? manager.getFirstName() + " " + manager.getLastName() : "");
+        }
+        return fields;
+    }
+
+    public String generateAndStore(Document.DocumentType type, UUID templateId, Map<String, String> fields, Employee employee, String documentTitle) {
+        byte[] pdf = render(type, templateId, fields);
         String fileName = documentTitle.replaceAll("[^a-zA-Z0-9]+", "_") + "_" + employee.getEmployeeId() + ".pdf";
         String folderSlug = type.name().toLowerCase().replace('_', '-') + "s";
         String fileUrl = fileStorageService.storeBytes(pdf, fileName, FileModule.EMPLOYEE, employee.getEmployeeId(), folderSlug);

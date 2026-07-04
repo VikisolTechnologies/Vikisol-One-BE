@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-// "Document Studio" - CEO/Super Admin/HR Admin only. Manages the versioned templates that
+// "Document Studio" - CEO/HR Manager/Admin only. Manages the versioned templates that
 // DocumentGenerationService renders into PDFs for every HR document type.
 @RestController
 @RequestMapping("/document-templates")
@@ -30,19 +30,47 @@ public class DocumentTemplateController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Templates retrieved", templateService.listByType(type)));
     }
 
-    @GetMapping("/active")
-    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> getActive(@RequestParam Document.DocumentType type) {
-        return ResponseEntity.ok(new ApiResponse<>(true, "Active template retrieved", templateService.getActive(type)));
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> getById(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Template retrieved", templateService.getById(id)));
+    }
+
+    @GetMapping("/group/{templateGroupId}/versions")
+    public ResponseEntity<ApiResponse<List<DocumentTemplateResponse>>> listVersions(@PathVariable String templateGroupId) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Versions retrieved", templateService.listVersions(templateGroupId)));
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> createVersion(
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> createDraft(
             @RequestBody DocumentTemplateRequest request, @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(new ApiResponse<>(true, "Template version created", templateService.createVersion(request, principal.getUsername())));
+        return ResponseEntity.ok(new ApiResponse<>(true, "Template draft created", templateService.createDraft(request, principal.getUsername())));
     }
 
-    @PutMapping("/{id}/activate")
-    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> activate(@PathVariable UUID id) {
-        return ResponseEntity.ok(new ApiResponse<>(true, "Template activated", templateService.activate(id)));
+    @PostMapping("/group/{templateGroupId}/versions")
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> createNewVersion(
+            @PathVariable String templateGroupId, @RequestBody DocumentTemplateRequest request, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "New draft version created", templateService.createNewVersion(templateGroupId, request, principal.getUsername())));
+    }
+
+    @PostMapping("/{id}/duplicate")
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> duplicate(
+            @PathVariable UUID id, @RequestParam(required = false) String name, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Template duplicated", templateService.duplicate(id, name, principal.getUsername())));
+    }
+
+    @PutMapping("/{id}/publish")
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> publish(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Template published", templateService.publish(id)));
+    }
+
+    // Rolling back is the same operation as publishing an older/archived version.
+    @PutMapping("/{id}/rollback")
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> rollback(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Rolled back to this version", templateService.rollbackTo(id)));
+    }
+
+    @PutMapping("/{id}/archive")
+    public ResponseEntity<ApiResponse<DocumentTemplateResponse>> archive(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Template archived", templateService.archive(id)));
     }
 }

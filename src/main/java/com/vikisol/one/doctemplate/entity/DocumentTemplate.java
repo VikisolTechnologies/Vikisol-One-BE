@@ -5,11 +5,17 @@ import com.vikisol.one.document.entity.Document;
 import jakarta.persistence.*;
 import lombok.*;
 
-// A named, versioned HTML template for a document type (e.g. "Offer Letter - Corporate"). Body
-// contains {{PlaceholderName}} tokens that DocumentGenerationService fills in at render time.
-// Only one version per documentType is "active" at a time - that's the one used for generation
-// unless the caller explicitly asks for a specific templateId (multi-template support: e.g.
-// "Offer Letter Version 2" and "Intern Offer Letter" can both exist and be selected between).
+// A named, versioned template for a document type (e.g. "Offer Letter - Corporate"). Content is
+// stored as structured blocks (contentBlocksJson - see BlockRenderer for the schema: heading,
+// paragraph, table, list, signatureBlock, spacer), not one hardcoded HTML string - this is what
+// lets a future drag-and-drop designer, DOCX export, or version diff work against the same data
+// without a redesign. bodyHtml is a legacy fallback only: the handful of templates seeded before
+// the block model existed still render from it if contentBlocksJson is empty.
+//
+// Multiple templates can exist per documentType (e.g. "Corporate Offer Letter" + "Intern Offer
+// Letter" as separate rows, both PUBLISHED, selectable by templateId at generation time), and
+// each one is independently versioned: creating a new version archives the previously-published
+// version of THAT SAME named template rather than every template of that documentType.
 @Entity
 @Table(name = "document_templates")
 @Data
@@ -23,18 +29,32 @@ public class DocumentTemplate extends BaseEntity {
     @Column(nullable = false)
     private Document.DocumentType documentType;
 
+    // Groups versions of "the same" template together (e.g. all versions of "Corporate Offer
+    // Letter" share a templateGroupId even as `id` changes per version row).
+    @Column(nullable = false)
+    private String templateGroupId;
+
     @Column(nullable = false)
     private String name;
 
     @Column(nullable = false)
     private int version;
 
+    @Enumerated(EnumType.STRING)
     @Builder.Default
     @Column(nullable = false)
-    private boolean isActive = true;
+    private TemplateStatus status = TemplateStatus.DRAFT;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(columnDefinition = "TEXT")
     private String bodyHtml;
 
+    // JSON array of content blocks - see BlockRenderer for schema/types.
+    @Column(columnDefinition = "TEXT")
+    private String contentBlocksJson;
+
     private String createdByEmail;
+
+    public enum TemplateStatus {
+        DRAFT, PUBLISHED, ARCHIVED
+    }
 }

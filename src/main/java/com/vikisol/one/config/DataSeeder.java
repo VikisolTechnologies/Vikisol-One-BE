@@ -6,8 +6,11 @@ import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
 import com.vikisol.one.designation.repository.DesignationRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vikisol.one.doctemplate.entity.DocumentTemplate;
+import com.vikisol.one.doctemplate.entity.TemplateVariable;
 import com.vikisol.one.doctemplate.repository.DocumentTemplateRepository;
+import com.vikisol.one.doctemplate.repository.TemplateVariableRepository;
 import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
@@ -31,6 +34,7 @@ import com.vikisol.one.settings.entity.Holiday.HolidayType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -49,6 +53,8 @@ public class DataSeeder implements CommandLineRunner {
     private final EntityManager entityManager;
     private final ScheduledTasks scheduledTasks;
     private final DocumentTemplateRepository documentTemplateRepository;
+    private final TemplateVariableRepository templateVariableRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -88,8 +94,9 @@ public class DataSeeder implements CommandLineRunner {
 
         // Always run — idempotent, only inserts a default template for a document type if none
         // exists yet. Lets Document Studio ship with working templates out of the box instead of
-        // every document type failing with "no active template" until an admin manually creates one.
+        // every document type failing with "no published template" until an admin manually creates one.
         seedDocumentTemplates();
+        seedTemplateVariables();
 
         // initializeYearlyLeaveBalances() only ran via @Scheduled(cron = "0 0 0 1 1 *") - literally
         // only at midnight Jan 1st. Since this app has never been running at that exact moment,
@@ -321,18 +328,238 @@ public class DataSeeder implements CommandLineRunner {
                 + "<td style=\"padding:14px 18px;font-size:13px;font-weight:bold;\">Net Salary Payable</td>"
                 + "<td style=\"padding:14px 18px;font-size:15px;font-weight:bold;text-align:right;\">Rs. {{NetSalary}}</td>"
                 + "</tr></table>");
+
+        // The remaining 13 document types use the structured block model (see BlockRenderer)
+        // rather than hand-written HTML strings - this is the canonical authoring format going
+        // forward; the four above stay on the legacy bodyHtml path since they already work live
+        // and there's no reason to risk rewriting something that isn't broken.
+        seedBlockTemplate(Document.DocumentType.APPOINTMENT_LETTER, "Standard Appointment Letter", List.of(
+                heading("APPOINTMENT LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("Further to your offer of employment, we are pleased to confirm your appointment with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> in the <b>{{Department}}</b> department, effective <b>{{JoiningDate}}</b>."),
+                table("Appointment Details", List.of(
+                        List.of("Employee ID", "{{EmployeeID}}"),
+                        List.of("Designation", "{{Designation}}"),
+                        List.of("Department", "{{Department}}"),
+                        List.of("Date of Joining", "{{JoiningDate}}"),
+                        List.of("Work Location", "{{WorkLocation}}")
+                )),
+                paragraph("Your employment will be governed by the Company's HR policies as communicated separately. We look forward to a long and productive association."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "Accepted by", "{{EmployeeName}}")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.JOINING_LETTER, "Standard Joining Letter", List.of(
+                heading("JOINING LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("Welcome to <b>{{CompanyName}}</b>! This letter confirms your joining as <b>{{Designation}}</b> in the <b>{{Department}}</b> department, effective <b>{{JoiningDate}}</b>."),
+                paragraph("Please report to <b>{{ManagerName}}</b> at <b>{{WorkLocation}}</b> on your date of joining, along with all original documents requested during onboarding."),
+                paragraph("We are excited to have you on board and look forward to your contribution."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.CONFIRMATION_LETTER, "Standard Confirmation Letter", List.of(
+                heading("CONFIRMATION OF EMPLOYMENT"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("We are pleased to confirm that you have successfully completed your probation period and your employment with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> in the <b>{{Department}}</b> department stands confirmed with effect from <b>{{CurrentDate}}</b>."),
+                paragraph("All other terms and conditions of your employment remain unchanged. Congratulations, and we look forward to your continued contribution."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.PROMOTION_LETTER, "Standard Promotion Letter", List.of(
+                heading("PROMOTION LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("We are delighted to inform you that, in recognition of your performance and contribution, you have been promoted from <b>{{Designation}}</b> to <b>{{NewDesignation}}</b>, effective <b>{{EffectiveDate}}</b>."),
+                table("Promotion Details", List.of(
+                        List.of("Previous Designation", "{{Designation}}"),
+                        List.of("New Designation", "{{NewDesignation}}"),
+                        List.of("Effective Date", "{{EffectiveDate}}")
+                )),
+                paragraph("Congratulations on this well-deserved promotion. We look forward to your continued success at {{CompanyName}}."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.SALARY_REVISION_LETTER, "Standard Salary Revision Letter", List.of(
+                heading("SALARY REVISION LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("We are pleased to inform you that your compensation has been revised, effective <b>{{EffectiveDate}}</b>, in recognition of your performance and contribution to <b>{{CompanyName}}</b>."),
+                table("Revised Compensation", List.of(
+                        List.of("Previous Annual CTC", "Rs. {{OldSalary}}"),
+                        List.of("Revised Annual CTC", "Rs. {{NewSalary}}"),
+                        List.of("Effective Date", "{{EffectiveDate}}")
+                )),
+                paragraph("Congratulations, and thank you for your continued dedication."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.RESIGNATION_ACCEPTANCE_LETTER, "Standard Resignation Acceptance Letter", List.of(
+                heading("RESIGNATION ACCEPTANCE LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("This letter is to formally acknowledge and accept your resignation from the position of <b>{{Designation}}</b> at <b>{{CompanyName}}</b>, submitted on <b>{{ResignationDate}}</b>."),
+                paragraph("Your last working day will be <b>{{LastWorkingDate}}</b>. Please coordinate with HR to complete the exit formalities, knowledge transfer, and asset handover before this date."),
+                paragraph("We thank you for your contribution and wish you success in your future endeavors."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.TERMINATION_LETTER, "Standard Termination Letter", List.of(
+                heading("TERMINATION OF EMPLOYMENT"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("This letter is to inform you that your employment with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> is terminated with effect from <b>{{TerminationDate}}</b>, for the following reason: <b>{{Reason}}</b>."),
+                paragraph("Please contact HR regarding the return of company property and settlement of dues as per policy."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.WARNING_LETTER, "Standard Warning Letter", List.of(
+                heading("LETTER OF WARNING"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("This letter serves as a formal warning regarding the following matter: <b>{{Reason}}</b>."),
+                paragraph("You are advised to improve your conduct/performance immediately. Failure to do so may result in further disciplinary action, up to and including termination of employment."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.INTERNSHIP_LETTER, "Standard Internship Letter", List.of(
+                heading("INTERNSHIP OFFER LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("We are pleased to offer you an internship at <b>{{CompanyName}}</b> as <b>{{Designation}}</b> in the <b>{{Department}}</b> department, for a duration of <b>{{InternshipDuration}}</b> commencing <b>{{JoiningDate}}</b>."),
+                paragraph("This is a training engagement and does not constitute an offer of permanent employment. Performance during the internship may be considered for a future full-time role."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "Accepted by", "{{EmployeeName}}")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.CONTRACT_LETTER, "Standard Contract Letter", List.of(
+                heading("CONTRACT OF EMPLOYMENT"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("This confirms your engagement with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> on a contract basis for a term of <b>{{ContractDuration}}</b>, commencing <b>{{JoiningDate}}</b>."),
+                table("Contract Terms", List.of(
+                        List.of("Designation", "{{Designation}}"),
+                        List.of("Contract Duration", "{{ContractDuration}}"),
+                        List.of("Start Date", "{{JoiningDate}}")
+                )),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "Accepted by", "{{EmployeeName}}")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.LEAVE_APPROVAL_LETTER, "Standard Leave Approval Letter", List.of(
+                heading("LEAVE APPROVAL"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("Your leave request has been <b>approved</b> as per the details below."),
+                table("Leave Details", List.of(
+                        List.of("Leave Type", "{{LeaveType}}"),
+                        List.of("From", "{{LeaveStartDate}}"),
+                        List.of("To", "{{LeaveEndDate}}"),
+                        List.of("Approved By", "{{ManagerName}}")
+                )),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.LEAVE_REJECTION_LETTER, "Standard Leave Rejection Letter", List.of(
+                heading("LEAVE REQUEST - NOT APPROVED"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("Dear {{EmployeeName}},"),
+                paragraph("Your leave request below has not been approved, for the following reason: <b>{{Reason}}</b>."),
+                table("Leave Details", List.of(
+                        List.of("Leave Type", "{{LeaveType}}"),
+                        List.of("From", "{{LeaveStartDate}}"),
+                        List.of("To", "{{LeaveEndDate}}")
+                )),
+                paragraph("Please reach out to your reporting manager or HR if you would like to discuss this further."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+
+        seedBlockTemplate(Document.DocumentType.EMPLOYMENT_VERIFICATION_LETTER, "Standard Employment Verification Letter", List.of(
+                heading("EMPLOYMENT VERIFICATION LETTER"),
+                paragraph("Date: {{CurrentDate}}"),
+                paragraph("To Whomsoever It May Concern,"),
+                paragraph("This is to verify that <b>{{EmployeeName}}</b> (Employee ID: <b>{{EmployeeID}}</b>) is/was employed with <b>{{CompanyName}}</b> as <b>{{Designation}}</b> in the <b>{{Department}}</b> department since <b>{{JoiningDate}}</b>."),
+                paragraph("This letter is issued upon request for whatever purpose it may serve."),
+                signature("For {{CompanyName}}", "{{HRName}}<br/>Human Resources", "", "")
+        ));
+    }
+
+    private Map<String, Object> heading(String text) {
+        return Map.of("type", "heading", "text", text);
+    }
+
+    private Map<String, Object> paragraph(String text) {
+        return Map.of("type", "paragraph", "text", text);
+    }
+
+    private Map<String, Object> table(String title, List<List<String>> rows) {
+        return Map.of("type", "table", "title", title, "rows", rows);
+    }
+
+    private Map<String, Object> signature(String leftLabel, String leftName, String rightLabel, String rightName) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("type", "signatureBlock");
+        m.put("leftLabel", leftLabel);
+        m.put("leftName", leftName);
+        m.put("rightLabel", rightLabel);
+        m.put("rightName", rightName);
+        return m;
+    }
+
+    private void seedBlockTemplate(Document.DocumentType type, String name, List<Map<String, Object>> blocks) {
+        if (documentTemplateRepository.existsByDocumentType(type)) return;
+        try {
+            String json = objectMapper.writeValueAsString(blocks);
+            documentTemplateRepository.save(DocumentTemplate.builder()
+                    .documentType(type)
+                    .templateGroupId(java.util.UUID.randomUUID().toString())
+                    .name(name)
+                    .version(1)
+                    .status(DocumentTemplate.TemplateStatus.PUBLISHED)
+                    .contentBlocksJson(json)
+                    .createdByEmail("system-seed")
+                    .build());
+        } catch (Exception e) {
+            log.warn("Could not seed block template for {}: {}", type, e.getMessage());
+        }
     }
 
     private void seedTemplateIfMissing(Document.DocumentType type, String name, String bodyHtml) {
-        if (!documentTemplateRepository.findByDocumentType(type).isEmpty()) return;
+        if (documentTemplateRepository.existsByDocumentType(type)) return;
         documentTemplateRepository.save(DocumentTemplate.builder()
                 .documentType(type)
+                .templateGroupId(java.util.UUID.randomUUID().toString())
                 .name(name)
                 .version(1)
-                .isActive(true)
+                .status(DocumentTemplate.TemplateStatus.PUBLISHED)
                 .bodyHtml(bodyHtml)
                 .createdByEmail("system-seed")
                 .build());
+    }
+
+    // The starter set of global placeholders every document type can use - admins can add more
+    // (global or type-scoped) via POST /template-variables without any code change.
+    private void seedTemplateVariables() {
+        seedVariable("EmployeeName", "Employee Full Name", "Full name of the employee", null);
+        seedVariable("EmployeeID", "Employee ID", "System-assigned employee code (e.g. VIK-0007)", null);
+        seedVariable("Designation", "Designation", "Employee's job title", null);
+        seedVariable("Department", "Department", "Employee's department", null);
+        seedVariable("JoiningDate", "Joining Date", "Date of joining", null);
+        seedVariable("Salary", "Annual CTC", "Employee's annual CTC", null);
+        seedVariable("WorkLocation", "Work Location", "Employee's city/work location", null);
+        seedVariable("ManagerName", "Reporting Manager Name", "Name of the employee's reporting manager", null);
+        seedVariable("CompanyName", "Company Name", "Company legal name (from Branding settings)", null);
+        seedVariable("CompanyAddress", "Company Address", "Company registered address (from Branding settings)", null);
+        seedVariable("Website", "Company Website", "From Branding settings", null);
+        seedVariable("CeoName", "CEO Name", "From Branding settings", null);
+        seedVariable("HRName", "HR Name", "From Branding settings", null);
+        seedVariable("CurrentDate", "Current Date", "Today's date, auto-filled at generation time", null);
+    }
+
+    private void seedVariable(String key, String label, String description, Document.DocumentType type) {
+        if (templateVariableRepository.existsByKey(key)) return;
+        templateVariableRepository.save(TemplateVariable.builder()
+                .key(key).label(label).description(description).documentType(type).build());
     }
 
     private void seedEmployeesForUsers() {
