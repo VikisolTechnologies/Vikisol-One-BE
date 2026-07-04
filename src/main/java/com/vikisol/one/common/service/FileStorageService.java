@@ -33,6 +33,11 @@ public class FileStorageService {
     @Value("${cloudinary.api-secret:}")
     private String apiSecret;
 
+    // All app uploads live under this root folder in the Cloudinary media library, separate from
+    // anything else in the account (e.g. the logo, uploaded directly by hand outside the app).
+    @Value("${cloudinary.root-folder:vikisol-one-hrms}")
+    private String rootFolder;
+
     // No file-type restriction existed before this - any authenticated user could upload any
     // file type (executables, scripts, etc). This allowlist covers every use case in the app
     // (profile photos, resumes, documents, assets, generated PDFs).
@@ -87,7 +92,7 @@ public class FileStorageService {
             // to serve non-image files correctly (images get optimization/transformation for free).
             boolean isImage = Set.of(".png", ".jpg", ".jpeg", ".gif", ".webp").contains(extension);
             Map<String, Object> options = ObjectUtils.asMap(
-                    "folder", subDirectory,
+                    "folder", rootFolder + "/" + subDirectory,
                     "public_id", UUID.randomUUID().toString(),
                     "resource_type", isImage ? "image" : "raw"
             );
