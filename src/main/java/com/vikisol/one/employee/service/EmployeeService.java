@@ -3,6 +3,7 @@ package com.vikisol.one.employee.service;
 import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.common.service.EmailService;
+import com.vikisol.one.common.service.FileModule;
 import com.vikisol.one.common.service.FileStorageService;
 import com.vikisol.one.common.service.PdfService;
 import com.vikisol.one.department.entity.Department;
@@ -328,8 +329,9 @@ public class EmployeeService {
                 reportingManagerName, java.time.LocalDate.now());
         byte[] pdf = pdfService.renderPdf(pdfHtml);
 
-        String fileName = "Offer_Letter_" + fullName.trim().replaceAll("\\s+", "_") + ".pdf";
-        String fileUrl = fileStorageService.storeBytes(pdf, "documents", fileName);
+        String fileName = "Offer_Letter_" + employee.getEmployeeId() + ".pdf";
+        String fileUrl = fileStorageService.storeBytes(pdf, fileName,
+                FileModule.EMPLOYEE, employee.getEmployeeId(), "offer-letters");
         documentService.uploadDocument(new DocumentUploadRequest(
                 employee.getId(), "Offer Letter", Document.DocumentType.OFFER_LETTER,
                 fileUrl, fileName, pdf.length, "application/pdf",
