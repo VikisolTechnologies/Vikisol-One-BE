@@ -84,6 +84,12 @@ public class DataSeeder implements CommandLineRunner {
         // after the Java field was gone. Drop the column outright since nothing reads it anymore.
         dropColumn("document_templates", "is_active");
 
+        // Same recurring issue as candidates_status_check/documents_type_check: the CHECK
+        // constraint on document_type was generated against only the enum values that existed
+        // when this table was first created, and never refreshes when new DocumentType values
+        // are added (13 more added alongside this Document Engine expansion).
+        dropStaleCheckConstraint("document_templates", "document_templates_document_type_check");
+
         // Managers were briefly granted the "new-hires" (offer approval) module - that's now HR-only.
         // A stored override for any module on a role bypasses the whole DEFAULTS fallback, so this
         // stale row must be removed explicitly rather than relying on the code default alone.
