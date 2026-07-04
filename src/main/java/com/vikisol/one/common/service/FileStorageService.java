@@ -154,19 +154,6 @@ public class FileStorageService {
         }
     }
 
-    // Cloudinary's "Restricted media types" account security setting blocks anonymous delivery
-    // of recognized-format raw files (PDF/ZIP/etc). Confirmed live that neither the fl_attachment
-    // transformation flag NOR a signed type=authenticated URL bypassed it for this account (the
-    // exact URL Cloudinary itself generated at upload time was still rejected with the same
-    // "deny or ACL failure"). Cloudinary's documented alternative - HTTP Basic Auth using the
-    // account's own API key/secret - operates independently of delivery-type ACLs entirely,
-    // since it authenticates the request as the account owner rather than relying on the
-    // resource's own access policy.
-    public String basicAuthHeader() {
-        String credentials = apiKey + ":" + apiSecret;
-        return "Basic " + java.util.Base64.getEncoder().encodeToString(credentials.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-    }
-
     // Cloudinary separates public_id from format for images, but for resource_type=raw the
     // extension is part of the public_id itself (that's what makes raw downloads carry a real
     // .pdf extension - see upload() above) - so only images should have their extension stripped.

@@ -1,7 +1,6 @@
 package com.vikisol.one.document.service;
 
 import com.vikisol.one.audit.service.AuditService;
-import com.vikisol.one.common.service.FileStorageService;
 import com.vikisol.one.document.dto.DocumentResponse;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
@@ -29,7 +28,6 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
-    private final FileStorageService fileStorageService;
 
     public DocumentResponse uploadDocument(DocumentUploadRequest request) {
         Employee employee = employeeRepository.findById(request.employeeId())
@@ -95,28 +93,23 @@ public class DocumentService {
     /** Bytes + a human-readable filename, ready to stream back with our own Content-Disposition. */
     public record DownloadedFile(byte[] bytes, String fileName, String mimeType) {}
 
-    // Proxies the file through our own server instead of relying on Cloudinary's fl_attachment
-    // transformation flag - that flag requires "Allow dynamic raw file transformations" to be
-    // enabled in the Cloudinary account's security settings (disabled by default), and returned
-    // a 401 "deny or ACL failure" when tested live against this account. Proxying gives us full,
-    // reliable control over the download filename/headers regardless of Cloudinary account
-    // config, at the cost of the file passing through our server instead of being served
-    // directly from Cloudinary's CDN.
+    // Proxies the file through our own server instead of a direct Cloudinary CDN link, so we
+    // control the Content-Disposition/filename ourselves. NOTE: PDF downloads currently fail
+    // with a 401 from Cloudinary ("deny or ACL failure") - this account's "Restricted media
+    // types" security setting blocks delivery of recognized PDF/ZIP files, and unlike most
+    // Cloudinary restrictions this one is NOT bypassable from our side: fl_attachment, a
+    // correctly-signed type=authenticated URL (verified with the exact right version), and HTTP
+    // Basic Auth with the account's own API key/secret were all tried live and all rejected
+    // identically. Per Cloudinary's own docs this setting must be disabled in the account
+    // dashboard (Settings -> Security -> Restricted media types) - once that's done, this plain
+    // fetch will work with no further code changes.
     public DownloadedFile downloadDocument(UUID id) {
         Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Document not found with id: " + id));
         try {
-            // Plain stored URL + HTTP Basic Auth using our own Cloudinary API key/secret - see
-            // FileStorageService.basicAuthHeader for why (Cloudinary's "Restricted media types"
-            // setting blocks anonymous/signed delivery of recognized PDF/ZIP/etc files for this
-            // account regardless of URL signing; Basic Auth authenticates as the account owner
-            // instead, which operates independently of that delivery-level ACL).
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(document.getFileUrl()))
-                    .timeout(Duration.ofSeconds(20)).GET();
-            if (document.getFileUrl().contains("cloudinary.com")) {
-                requestBuilder.header("Authorization", fileStorageService.basicAuthHeader());
-            }
-            HttpResponse<byte[]> response = HTTP_CLIENT.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            HttpRequest request = HttpRequest.newBuilder(URI.create(document.getFileUrl()))
+                    .timeout(Duration.ofSeconds(20)).GET().build();
+            HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
                 throw new RuntimeException("Could not fetch stored file (status " + response.statusCode() + ")");
             }
