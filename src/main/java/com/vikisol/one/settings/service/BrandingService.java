@@ -41,15 +41,26 @@ public class BrandingService {
                 get("BRANDING_COMPANY_ADDRESS", DEFAULTS.get("BRANDING_COMPANY_ADDRESS")),
                 get("BRANDING_GST", ""),
                 get("BRANDING_PAN", ""),
+                get("BRANDING_CIN", ""),
                 get("BRANDING_WEBSITE", DEFAULTS.get("BRANDING_WEBSITE")),
                 get("BRANDING_PHONE", ""),
                 get("BRANDING_EMAIL", defaultSupportEmail),
                 get("BRANDING_LOGO_URL", defaultLogoUrl),
+                get("BRANDING_DARK_LOGO_URL", ""),
+                get("BRANDING_LIGHT_LOGO_URL", ""),
+                get("BRANDING_LETTERHEAD_URL", ""),
+                get("BRANDING_FOOTER_TEXT", ""),
+                get("BRANDING_WATERMARK_URL", ""),
                 get("BRANDING_CEO_SIGNATURE_URL", ""),
                 get("BRANDING_HR_SIGNATURE_URL", ""),
+                get("BRANDING_AUTHORIZED_SIGNATORY_URL", ""),
                 get("BRANDING_COMPANY_SEAL_URL", ""),
                 get("BRANDING_CEO_NAME", DEFAULTS.get("BRANDING_CEO_NAME")),
-                get("BRANDING_HR_NAME", DEFAULTS.get("BRANDING_HR_NAME"))
+                get("BRANDING_HR_NAME", DEFAULTS.get("BRANDING_HR_NAME")),
+                get("BRANDING_PRIMARY_COLOR", "#FF6B35"),
+                get("BRANDING_SECONDARY_COLOR", "#0a0a0a"),
+                get("BRANDING_FONT_FAMILY", "Helvetica, Arial, sans-serif"),
+                get("BRANDING_DEFAULT_MARGIN", "36px 40px")
         );
     }
 

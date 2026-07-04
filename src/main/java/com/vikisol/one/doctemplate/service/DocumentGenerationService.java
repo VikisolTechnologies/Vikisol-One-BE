@@ -178,21 +178,30 @@ public class DocumentGenerationService {
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    // Shared visual chrome (dark header bar with logo + tagline, light footer bar with company
-    // info) matching the look already established by the offer-letter PDF, so every document
-    // type looks like it belongs to the same company regardless of which template generated it.
+    // Shared visual chrome (header bar with logo, footer bar with company info) that every
+    // document type inherits from the Company Branding settings - color, font, and margins are
+    // no longer hardcoded here, they come from BrandingDto so a CEO/HR Admin change on the
+    // Company Branding page takes effect on the next document generated, no code/redeploy needed.
     private String wrapWithChrome(String bodyHtml, BrandingDto branding) {
+        String watermark = branding.watermarkUrl() != null && !branding.watermarkUrl().isBlank()
+                ? "<div style=\"position:fixed;top:35%;left:15%;opacity:0.08;z-index:-1;\">"
+                  + "<img src=\"" + branding.watermarkUrl() + "\" style=\"width:400px;\"/></div>"
+                : "";
+        String footerText = branding.footerText() != null && !branding.footerText().isBlank()
+                ? branding.footerText()
+                : branding.companyName() + " &#183; " + branding.email() + " &#183; " + branding.website();
         return "<html><head><meta charset=\"UTF-8\"/></head>"
-                + "<body style=\"margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;\">"
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#0a0a0a;padding:24px 40px;\">"
+                + "<body style=\"margin:0;padding:0;font-family:" + branding.fontFamily() + ";color:#1a1a1a;\">"
+                + watermark
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:" + branding.secondaryColor() + ";padding:24px 40px;\">"
                 + "<img src=\"" + branding.logoUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"height:34px;\"/>"
                 + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &#8226; TALENT &#8226; TRANSFORMATION</div>"
                 + "</td></tr></table>"
-                + "<div style=\"padding:36px 40px;\">"
+                + "<div style=\"padding:" + branding.defaultMargin() + ";\">"
                 + bodyHtml
                 + "</div>"
                 + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#f4f4f5;padding:16px 40px;color:#888;font-size:9px;text-align:center;\">"
-                + branding.companyName() + " &#183; " + branding.email() + " &#183; " + branding.website()
+                + footerText
                 + "</td></tr></table>"
                 + "</body></html>";
     }
