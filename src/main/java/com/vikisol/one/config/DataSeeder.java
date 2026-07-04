@@ -95,6 +95,9 @@ public class DataSeeder implements CommandLineRunner {
         // Always run — idempotent, only inserts a default template for a document type if none
         // exists yet. Lets Document Studio ship with working templates out of the box instead of
         // every document type failing with "no published template" until an admin manually creates one.
+        // Must run BEFORE seedDocumentTemplates(), which queries by status - the 4 templates
+        // seeded before the status/templateGroupId columns existed would otherwise be invisible.
+        migrateLegacyDocumentTemplates();
         seedDocumentTemplates();
         seedTemplateVariables();
 
@@ -263,6 +266,23 @@ public class DataSeeder implements CommandLineRunner {
         h.setYear(year);
         h.setOptional(type == HolidayType.OPTIONAL);
         holidayRepository.save(h);
+    }
+
+    // Backfills templateGroupId/status on the 4 template rows created before those columns
+    // existed (Offer/Experience/Relieving-adjacent seed data) - without this they'd have
+    // status=null and silently disappear from every "find the PUBLISHED template" query.
+    private void migrateLegacyDocumentTemplates() {
+        List<DocumentTemplate> legacy = documentTemplateRepository.findAll().stream()
+                .filter(t -> t.getStatus() == null || t.getTemplateGroupId() == null || t.getTemplateGroupId().isBlank())
+                .toList();
+        for (DocumentTemplate t : legacy) {
+            if (t.getStatus() == null) t.setStatus(DocumentTemplate.TemplateStatus.PUBLISHED);
+            if (t.getTemplateGroupId() == null || t.getTemplateGroupId().isBlank()) t.setTemplateGroupId(java.util.UUID.randomUUID().toString());
+        }
+        if (!legacy.isEmpty()) {
+            documentTemplateRepository.saveAll(legacy);
+            log.info("Migrated {} legacy document templates to status/templateGroupId model", legacy.size());
+        }
     }
 
     // Seeds one default, working template per document type Document Studio ships with - each

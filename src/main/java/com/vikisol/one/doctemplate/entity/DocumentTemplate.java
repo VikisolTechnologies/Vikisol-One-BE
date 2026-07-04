@@ -31,7 +31,11 @@ public class DocumentTemplate extends BaseEntity {
 
     // Groups versions of "the same" template together (e.g. all versions of "Corporate Offer
     // Letter" share a templateGroupId even as `id` changes per version row).
-    @Column(nullable = false)
+    //
+    // Not DB-NOT-NULL: ddl-auto=update can't backfill a NOT NULL column against pre-existing
+    // rows (the ALTER TABLE fails and Hibernate silently skips adding the column, which is worse
+    // than a nullable column - it previously caused a real "column does not exist" 500 in prod).
+    // DataSeeder.migrateLegacyDocumentTemplates() backfills old rows on startup instead.
     private String templateGroupId;
 
     @Column(nullable = false)
@@ -42,7 +46,6 @@ public class DocumentTemplate extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Builder.Default
-    @Column(nullable = false)
     private TemplateStatus status = TemplateStatus.DRAFT;
 
     @Column(columnDefinition = "TEXT")
