@@ -60,6 +60,11 @@ public class DataSeeder implements CommandLineRunner {
         // recreate them fresh against the current enum on next schema validation.
         dropStaleCheckConstraint("candidates", "candidates_status_check");
 
+        // Same issue as above: RELIEVING_LETTER/SALARY_CERTIFICATE were added to
+        // Document.DocumentType after this column's CHECK constraint was first generated, so
+        // Postgres was still rejecting those two new values on insert.
+        dropStaleCheckConstraint("documents", "documents_type_check");
+
         // Managers were briefly granted the "new-hires" (offer approval) module - that's now HR-only.
         // A stored override for any module on a role bypasses the whole DEFAULTS fallback, so this
         // stale row must be removed explicitly rather than relying on the code default alone.
