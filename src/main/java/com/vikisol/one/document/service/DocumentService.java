@@ -106,20 +106,18 @@ public class DocumentService {
         Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Document not found with id: " + id));
         try {
-            // Signed fetch - see FileStorageService.buildSignedFetchUrl for why a plain fetch of
-            // the stored URL isn't reliable (Cloudinary's "Restricted media types" setting blocks
-            // anonymous delivery of recognized PDF/ZIP/etc files by default).
-            String fetchUrl = document.getFileUrl().contains("cloudinary.com")
-                    ? fileStorageService.buildSignedFetchUrl(document.getFileUrl())
-                    : document.getFileUrl();
-            HttpRequest request = HttpRequest.newBuilder(URI.create(fetchUrl))
-                    .timeout(Duration.ofSeconds(20)).GET().build();
-            HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            // Plain stored URL + HTTP Basic Auth using our own Cloudinary API key/secret - see
+            // FileStorageService.basicAuthHeader for why (Cloudinary's "Restricted media types"
+            // setting blocks anonymous/signed delivery of recognized PDF/ZIP/etc files for this
+            // account regardless of URL signing; Basic Auth authenticates as the account owner
+            // instead, which operates independently of that delivery-level ACL).
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(document.getFileUrl()))
+                    .timeout(Duration.ofSeconds(20)).GET();
+            if (document.getFileUrl().contains("cloudinary.com")) {
+                requestBuilder.header("Authorization", fileStorageService.basicAuthHeader());
+            }
+            HttpResponse<byte[]> response = HTTP_CLIENT.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
-                org.slf4j.LoggerFactory.getLogger(DocumentService.class).warn(
-                        "Cloudinary fetch failed. storedUrl={} fetchUrl={} status={} error={}",
-                        document.getFileUrl(), fetchUrl, response.statusCode(),
-                        response.headers().firstValue("x-cld-error").orElse("n/a"));
                 throw new RuntimeException("Could not fetch stored file (status " + response.statusCode() + ")");
             }
             String fileName = document.getFileName() != null && !document.getFileName().isBlank()

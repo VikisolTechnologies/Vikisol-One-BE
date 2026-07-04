@@ -102,19 +102,10 @@ public class FileStorageService {
             // every generated document previously downloaded with no extension at all (a real
             // bug: browsers couldn't tell it was a PDF).
             String publicId = isImage ? UUID.randomUUID().toString() : UUID.randomUUID() + extension;
-            // Non-image files upload as Cloudinary's "authenticated" delivery type, not the
-            // default public "upload" type - confirmed live that a recognized-format raw file
-            // (a real PDF) uploaded as type=upload gets a 401 "deny or ACL failure" on ANY fetch,
-            // signed or not, because of this account's "Restricted media types" security setting.
-            // type=authenticated is a structurally different, non-public asset from the start,
-            // so a signed URL (built in buildSignedFetchUrl) reliably works regardless of that
-            // setting. Images stay on the default public type since nothing in the app fetches
-            // them through our own signed proxy - they're displayed directly via <img src>.
             Map<String, Object> options = ObjectUtils.asMap(
                     "folder", folder,
                     "public_id", publicId,
-                    "resource_type", isImage ? "image" : "raw",
-                    "type", isImage ? "upload" : "authenticated"
+                    "resource_type", isImage ? "image" : "raw"
             );
             Map<String, Object> result = cloudinary.uploader().upload(data, options);
             return (String) result.get("secure_url");
@@ -157,60 +148,33 @@ public class FileStorageService {
         try {
             boolean isImage = fileUrl.contains("/image/upload/");
             String publicId = parsePublicId(fileUrl, isImage);
-            Map<String, Object> options = isImage
-                    ? ObjectUtils.asMap("resource_type", "image")
-                    : ObjectUtils.asMap("resource_type", "raw", "type", "authenticated");
-            cloudinary.uploader().destroy(publicId, options);
+            cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", isImage ? "image" : "raw"));
         } catch (Exception e) {
             log.warn("Could not delete file from Cloudinary: {}", fileUrl, e);
         }
     }
 
-    // Non-image files are uploaded as Cloudinary's "authenticated" delivery type (see upload()) -
-    // a structurally non-public asset from the start, so a signed URL of this type reliably
-    // works regardless of the account's "Restricted media types" setting. (A signed URL for a
-    // plain public type=upload asset was tried first and still returned 401 live - that setting
-    // blocks recognized-format raw files at the public-delivery level regardless of signing.)
-    //
-    // The asset's real version MUST be passed explicitly - omitting it made the SDK default to
-    // "v1" in the generated URL, which doesn't match the actual stored version and therefore
-    // signs incorrectly, producing exactly the same "401 deny or ACL failure" as no signature at
-    // all (confirmed live: the generated URL literally read ".../v1/..." instead of the real
-    // version like ".../v1783194458/...").
-    public String buildSignedFetchUrl(String fileUrl) {
-        boolean isImage = fileUrl.contains("/image/upload/");
-        String publicId = parsePublicId(fileUrl, isImage);
-        String version = parseVersion(fileUrl);
-        var urlBuilder = cloudinary.url().resourceType(isImage ? "image" : "raw").signed(true);
-        if (!isImage) urlBuilder = urlBuilder.type("authenticated");
-        if (version != null) urlBuilder = urlBuilder.version(version);
-        return urlBuilder.generate(publicId);
+    // Cloudinary's "Restricted media types" account security setting blocks anonymous delivery
+    // of recognized-format raw files (PDF/ZIP/etc). Confirmed live that neither the fl_attachment
+    // transformation flag NOR a signed type=authenticated URL bypassed it for this account (the
+    // exact URL Cloudinary itself generated at upload time was still rejected with the same
+    // "deny or ACL failure"). Cloudinary's documented alternative - HTTP Basic Auth using the
+    // account's own API key/secret - operates independently of delivery-type ACLs entirely,
+    // since it authenticates the request as the account owner rather than relying on the
+    // resource's own access policy.
+    public String basicAuthHeader() {
+        String credentials = apiKey + ":" + apiSecret;
+        return "Basic " + java.util.Base64.getEncoder().encodeToString(credentials.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     // Cloudinary separates public_id from format for images, but for resource_type=raw the
     // extension is part of the public_id itself (that's what makes raw downloads carry a real
     // .pdf extension - see upload() above) - so only images should have their extension stripped.
-    // Authenticated-type delivery URLs also embed a "s--SIGNATURE--/" segment before the version
-    // that plain "upload" type URLs don't have - strip it too if present.
     private String parsePublicId(String fileUrl, boolean isImage) {
-        String afterDeliveryType = stripToVersionSegment(fileUrl);
-        String withoutVersion = afterDeliveryType.replaceFirst("^v\\d+/", "");
+        String afterUpload = fileUrl.substring(fileUrl.indexOf("/upload/") + "/upload/".length());
+        String withoutVersion = afterUpload.replaceFirst("^v\\d+/", "");
         return (isImage && withoutVersion.contains("."))
                 ? withoutVersion.substring(0, withoutVersion.lastIndexOf("."))
                 : withoutVersion;
-    }
-
-    private String parseVersion(String fileUrl) {
-        // stripToVersionSegment already consumes the leading "/" before the version segment
-        // (it strips up through "/authenticated/" or "/upload/" and the signature), so the
-        // remaining string starts directly with "v<digits>/" - anchored at start, no leading "/".
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("^v(\\d+)/").matcher(stripToVersionSegment(fileUrl));
-        return matcher.find() ? matcher.group(1) : null;
-    }
-
-    private String stripToVersionSegment(String fileUrl) {
-        String deliveryTypeMarker = fileUrl.contains("/authenticated/") ? "/authenticated/" : "/upload/";
-        String afterDeliveryType = fileUrl.substring(fileUrl.indexOf(deliveryTypeMarker) + deliveryTypeMarker.length());
-        return afterDeliveryType.replaceFirst("^s--[A-Za-z0-9_-]+--/", "");
     }
 }
