@@ -25,7 +25,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/documents")
 @RequiredArgsConstructor
-public class DocumentController {
+public class DocumentGenerationController {
 
     private final DocumentGenerationService documentGenerationService;
     private final EmployeeRepository employeeRepository;
