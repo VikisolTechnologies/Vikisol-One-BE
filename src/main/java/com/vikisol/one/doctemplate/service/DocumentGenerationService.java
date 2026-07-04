@@ -150,10 +150,13 @@ public class DocumentGenerationService {
                 LocalDate.now());
         String folderSlug = type.name().toLowerCase().replace('_', '-') + "s";
         String fileUrl = fileStorageService.storeBytes(pdf, fileName, FileModule.EMPLOYEE, employee.getEmployeeId(), folderSlug);
-        documentService.uploadDocument(new DocumentUploadRequest(
+        var document = documentService.uploadDocument(new DocumentUploadRequest(
                 employee.getId(), documentTitle, type, fileUrl, downloadFileName, pdf.length, "application/pdf",
                 "Generated via Document Studio"));
-        return fileStorageService.buildDownloadUrl(fileUrl, downloadFileName);
+        // Relative path - our own download proxy, not a raw Cloudinary URL (see
+        // DocumentService.downloadDocument for why: Cloudinary's fl_attachment flag needs an
+        // account setting we don't control, and returned a 401 when tested live).
+        return document.fileUrl();
     }
 
     private String substitute(String html, Map<String, String> fields) {

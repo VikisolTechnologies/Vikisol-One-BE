@@ -336,13 +336,15 @@ public class EmployeeService {
                 fullName.replaceAll("[^a-zA-Z0-9]+", "_"), employee.getEmployeeId(), java.time.LocalDate.now());
         String fileUrl = fileStorageService.storeBytes(pdf, storageFileName,
                 FileModule.EMPLOYEE, employee.getEmployeeId(), "offer-letters");
-        documentService.uploadDocument(new DocumentUploadRequest(
+        var document = documentService.uploadDocument(new DocumentUploadRequest(
                 employee.getId(), "Offer Letter", Document.DocumentType.OFFER_LETTER,
                 fileUrl, downloadFileName, pdf.length, "application/pdf",
                 "Regenerated on request"));
 
         auditService.record("Offer Letter Generated", employee.getEmployeeId(), fullName);
-        return fileStorageService.buildDownloadUrl(fileUrl, downloadFileName);
+        // Relative path via our own download proxy (see DocumentService.downloadDocument) -
+        // not a raw Cloudinary URL, so no UUID and a real filename reach the browser.
+        return document.fileUrl();
     }
 
     // Uses the reusable Document Studio engine (DocumentGenerationService) rather than a

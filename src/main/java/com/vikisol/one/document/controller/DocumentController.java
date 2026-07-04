@@ -7,11 +7,14 @@ import com.vikisol.one.document.service.DocumentService;
 import com.vikisol.one.security.service.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,6 +37,20 @@ public class DocumentController {
             @PathVariable UUID employeeId) {
         List<DocumentResponse> documents = documentService.getEmployeeDocuments(employeeId);
         return ResponseEntity.ok(new ApiResponse<>(true, "Documents retrieved successfully", documents));
+    }
+
+    // Proxies the stored file back with a real Content-Disposition header carrying a
+    // human-readable filename - see DocumentService.downloadDocument for why this isn't just a
+    // redirect to Cloudinary with a transformation flag (that path is blocked by a Cloudinary
+    // account setting we don't control).
+    @GetMapping("/{id}/download")
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable UUID id) {
+        DocumentService.DownloadedFile file = documentService.downloadDocument(id);
+        String encodedName = java.net.URLEncoder.encode(file.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.mimeType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.fileName() + "\"; filename*=UTF-8''" + encodedName)
+                .body(file.bytes());
     }
 
     @GetMapping("/my")

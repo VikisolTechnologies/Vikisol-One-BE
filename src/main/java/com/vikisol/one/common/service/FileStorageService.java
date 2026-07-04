@@ -114,31 +114,6 @@ public class FileStorageService {
         }
     }
 
-    // Builds a download URL that makes the browser save the file with a human-readable name
-    // (e.g. "Offer_Letter_John_Doe_VIK-0007.pdf") instead of the raw Cloudinary storage path
-    // (which stays UUID-based internally - only the download experience changes). Uses
-    // Cloudinary's fl_attachment delivery flag so no proxying through our own server is needed.
-    public String buildDownloadUrl(String secureUrl, String downloadFileName) {
-        if (secureUrl == null || !secureUrl.contains("/upload/")) return secureUrl;
-        // fl_attachment's value must be the base name WITHOUT an extension - Cloudinary appends
-        // the real extension from the resource's actual format itself. Including ".pdf" here
-        // makes Cloudinary reject the whole transformation ("Invalid flag in transformation: pdf").
-        String withoutExtension = downloadFileName.contains(".")
-                ? downloadFileName.substring(0, downloadFileName.lastIndexOf("."))
-                : downloadFileName;
-        String sanitizedName = sanitizeFileName(withoutExtension);
-        String encoded = java.net.URLEncoder.encode(sanitizedName, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
-        return secureUrl.replaceFirst("/upload/", "/upload/fl_attachment:" + encoded + "/");
-    }
-
-    // Replaces anything that isn't a letter/digit/underscore/hyphen/dot with an underscore, and
-    // collapses repeats - keeps filenames safe for every OS and every browser's download dialog.
-    private String sanitizeFileName(String name) {
-        if (name == null || name.isBlank()) return "document";
-        String cleaned = name.trim().replaceAll("[^a-zA-Z0-9_.-]+", "_").replaceAll("_+", "_");
-        return cleaned.isBlank() ? "document" : cleaned;
-    }
-
     // The single place all folder-path logic lives - see FileModule for what each case means.
     // entityId and documentType are sanitized so neither can be used for path traversal or to
     // create arbitrary folders outside this hierarchy (e.g. "../../etc" or "documents/../../x").
