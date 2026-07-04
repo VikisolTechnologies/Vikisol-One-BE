@@ -1,6 +1,7 @@
 package com.vikisol.one.document.service;
 
 import com.vikisol.one.audit.service.AuditService;
+import com.vikisol.one.common.service.FileStorageService;
 import com.vikisol.one.document.dto.DocumentResponse;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
@@ -28,6 +29,7 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final FileStorageService fileStorageService;
 
     public DocumentResponse uploadDocument(DocumentUploadRequest request) {
         Employee employee = employeeRepository.findById(request.employeeId())
@@ -104,7 +106,13 @@ public class DocumentService {
         Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Document not found with id: " + id));
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(document.getFileUrl()))
+            // Signed fetch - see FileStorageService.buildSignedFetchUrl for why a plain fetch of
+            // the stored URL isn't reliable (Cloudinary's "Restricted media types" setting blocks
+            // anonymous delivery of recognized PDF/ZIP/etc files by default).
+            String fetchUrl = document.getFileUrl().contains("cloudinary.com")
+                    ? fileStorageService.buildSignedFetchUrl(document.getFileUrl())
+                    : document.getFileUrl();
+            HttpRequest request = HttpRequest.newBuilder(URI.create(fetchUrl))
                     .timeout(Duration.ofSeconds(20)).GET().build();
             HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {

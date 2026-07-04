@@ -146,19 +146,38 @@ public class FileStorageService {
     public void deleteFile(String fileUrl) {
         if (fileUrl == null || !fileUrl.contains("cloudinary.com")) return;
         try {
-            // Cloudinary separates public_id from format for images, but for resource_type=raw
-            // the extension is part of the public_id itself (that's what makes raw downloads
-            // carry a real .pdf extension - see upload() above) - so only images should have
-            // their extension stripped before calling destroy().
-            String afterUpload = fileUrl.substring(fileUrl.indexOf("/upload/") + "/upload/".length());
-            String withoutVersion = afterUpload.replaceFirst("^v\\d+/", "");
             boolean isImage = fileUrl.contains("/image/upload/");
-            String publicId = (isImage && withoutVersion.contains("."))
-                    ? withoutVersion.substring(0, withoutVersion.lastIndexOf("."))
-                    : withoutVersion;
+            String publicId = parsePublicId(fileUrl, isImage);
             cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", isImage ? "image" : "raw"));
         } catch (Exception e) {
             log.warn("Could not delete file from Cloudinary: {}", fileUrl, e);
         }
+    }
+
+    // Cloudinary's "Restricted media types" account security setting (on by default for new
+    // accounts) blocks public/anonymous delivery of file types it recognizes as PDF/ZIP/etc -
+    // confirmed live: a plain fetch of a newly generated PDF's secure_url returned 401, while an
+    // older raw upload (created with no extension in its public_id, so Cloudinary couldn't
+    // classify its format) still worked. A signed URL bypasses that restriction entirely - this
+    // is Cloudinary's own documented workaround, and doesn't require any account/dashboard
+    // change, so our server (which already holds the API secret) can always fetch its own files.
+    public String buildSignedFetchUrl(String fileUrl) {
+        boolean isImage = fileUrl.contains("/image/upload/");
+        String publicId = parsePublicId(fileUrl, isImage);
+        return cloudinary.url()
+                .resourceType(isImage ? "image" : "raw")
+                .signed(true)
+                .generate(publicId);
+    }
+
+    // Cloudinary separates public_id from format for images, but for resource_type=raw the
+    // extension is part of the public_id itself (that's what makes raw downloads carry a real
+    // .pdf extension - see upload() above) - so only images should have their extension stripped.
+    private String parsePublicId(String fileUrl, boolean isImage) {
+        String afterUpload = fileUrl.substring(fileUrl.indexOf("/upload/") + "/upload/".length());
+        String withoutVersion = afterUpload.replaceFirst("^v\\d+/", "");
+        return (isImage && withoutVersion.contains("."))
+                ? withoutVersion.substring(0, withoutVersion.lastIndexOf("."))
+                : withoutVersion;
     }
 }
