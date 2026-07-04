@@ -116,6 +116,12 @@ public class DocumentService {
                     .timeout(Duration.ofSeconds(20)).GET().build();
             HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
+                // Temporary diagnostic logging - Cloudinary's actual response body/headers explain
+                // the real rejection reason far better than a bare status code does.
+                org.slf4j.LoggerFactory.getLogger(DocumentService.class).warn(
+                        "Cloudinary fetch failed. url={} status={} headers={} body={}",
+                        fetchUrl, response.statusCode(), response.headers().map(),
+                        new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
                 throw new RuntimeException("Could not fetch stored file (status " + response.statusCode() + ")");
             }
             String fileName = document.getFileName() != null && !document.getFileName().isBlank()
