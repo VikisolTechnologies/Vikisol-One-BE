@@ -71,6 +71,13 @@ public class DataSeeder implements CommandLineRunner {
         // Postgres was still rejecting those two new values on insert.
         dropStaleCheckConstraint("documents", "documents_type_check");
 
+        // body_html was NOT NULL when document_templates was first created (before the block
+        // model existed); ddl-auto=update never relaxes an existing NOT NULL when a Java field's
+        // annotation is loosened, so every block-based template (which legitimately has a null
+        // bodyHtml, using contentBlocksJson instead) failed to insert with a real constraint
+        // violation in prod. Drop it explicitly - the entity itself no longer declares it.
+        dropNotNullConstraint("document_templates", "body_html");
+
         // Managers were briefly granted the "new-hires" (offer approval) module - that's now HR-only.
         // A stored override for any module on a role bypasses the whole DEFAULTS fallback, so this
         // stale row must be removed explicitly rather than relying on the code default alone.
@@ -117,6 +124,16 @@ public class DataSeeder implements CommandLineRunner {
                     .executeUpdate();
         } catch (Exception e) {
             log.warn("Could not drop constraint {} on {}: {}", constraintName, table, e.getMessage());
+        }
+    }
+
+    private void dropNotNullConstraint(String table, String column) {
+        try {
+            entityManager.createNativeQuery(
+                    "ALTER TABLE " + table + " ALTER COLUMN " + column + " DROP NOT NULL")
+                    .executeUpdate();
+        } catch (Exception e) {
+            log.warn("Could not drop NOT NULL on {}.{}: {}", table, column, e.getMessage());
         }
     }
 
