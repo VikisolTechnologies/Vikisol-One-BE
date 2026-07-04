@@ -120,7 +120,13 @@ public class FileStorageService {
     // Cloudinary's fl_attachment delivery flag so no proxying through our own server is needed.
     public String buildDownloadUrl(String secureUrl, String downloadFileName) {
         if (secureUrl == null || !secureUrl.contains("/upload/")) return secureUrl;
-        String sanitizedName = sanitizeFileName(downloadFileName);
+        // fl_attachment's value must be the base name WITHOUT an extension - Cloudinary appends
+        // the real extension from the resource's actual format itself. Including ".pdf" here
+        // makes Cloudinary reject the whole transformation ("Invalid flag in transformation: pdf").
+        String withoutExtension = downloadFileName.contains(".")
+                ? downloadFileName.substring(0, downloadFileName.lastIndexOf("."))
+                : downloadFileName;
+        String sanitizedName = sanitizeFileName(withoutExtension);
         String encoded = java.net.URLEncoder.encode(sanitizedName, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
         return secureUrl.replaceFirst("/upload/", "/upload/fl_attachment:" + encoded + "/");
     }
