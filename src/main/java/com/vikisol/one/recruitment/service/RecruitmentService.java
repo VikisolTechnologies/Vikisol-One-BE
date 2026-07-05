@@ -135,9 +135,24 @@ public class RecruitmentService {
 
     // ─── Candidates ───
 
+    private String generateNextCandidateCode() {
+        List<Candidate> all = candidateRepository.findAll();
+        int maxNum = all.stream()
+                .map(Candidate::getCandidateCode)
+                .filter(code -> code != null && code.startsWith("CAN-"))
+                .map(code -> code.substring(4))
+                .mapToInt(num -> {
+                    try { return Integer.parseInt(num); } catch (NumberFormatException e) { return 0; }
+                })
+                .max()
+                .orElse(0);
+        return String.format("CAN-%04d", maxNum + 1);
+    }
+
     public CandidateResponse createCandidate(CandidateRequest request, UserPrincipal principal) {
         Employee creator = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
         Candidate candidate = Candidate.builder()
+                .candidateCode(generateNextCandidateCode())
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .email(request.getEmail())
@@ -980,6 +995,7 @@ public class RecruitmentService {
     private CandidateResponse mapCandidate(Candidate c) {
         CandidateResponse r = new CandidateResponse();
         r.setId(c.getId());
+        r.setCandidateCode(c.getCandidateCode());
         r.setFirstName(c.getFirstName());
         r.setLastName(c.getLastName());
         r.setEmail(c.getEmail());

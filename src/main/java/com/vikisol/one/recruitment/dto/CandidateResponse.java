@@ -10,6 +10,7 @@ import java.util.UUID;
 @Data
 public class CandidateResponse {
     private UUID id;
+    private String candidateCode;
     private String firstName;
     private String lastName;
     private String email;

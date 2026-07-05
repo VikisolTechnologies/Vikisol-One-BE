@@ -16,6 +16,12 @@ import java.util.UUID;
 @EqualsAndHashCode(callSuper = true)
 public class Candidate extends BaseEntity {
 
+    // Candidate-scoped identifier (CAN-0008) - deliberately distinct from Employee.employeeId
+    // (VIK-0008), which must never be generated/shown until this candidate actually becomes an
+    // employee (see RecruitmentService.approveSelection). A candidate is not an employee.
+    @Column(unique = true)
+    private String candidateCode;
+
     @Column(nullable = false)
     private String firstName;
 
