@@ -1,5 +1,6 @@
 package com.vikisol.one.employee.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.employee.dto.BackgroundCheckResponse;
 import com.vikisol.one.employee.dto.BackgroundCheckUpdateRequest;
 import com.vikisol.one.employee.entity.BackgroundCheck;
@@ -26,6 +27,7 @@ public class BackgroundCheckService {
 
     private final BackgroundCheckRepository backgroundCheckRepository;
     private final EmployeeRepository employeeRepository;
+    private final AuditService auditService;
 
     // Every employee should have all 8 check rows visible from day one (even before HR has
     // started reviewing any of them) rather than only showing rows once someone creates them -
@@ -60,7 +62,10 @@ public class BackgroundCheckService {
         if (request.remarks() != null) check.setRemarks(request.remarks());
         check.setReviewedById(reviewerEmployeeId);
         check.setReviewedAt(LocalDateTime.now());
-        return toResponse(backgroundCheckRepository.save(check));
+        check = backgroundCheckRepository.save(check);
+        auditService.record("Background Check Updated", check.getEmployee().getEmployeeId(),
+                check.getCheckType() + " -> " + check.getStatus());
+        return toResponse(check);
     }
 
     // Overall completion for dashboard widgets ("Employees Pending BGV") - a resolved fraction so

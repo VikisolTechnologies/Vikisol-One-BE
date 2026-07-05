@@ -2,12 +2,19 @@ package com.vikisol.one.config;
 
 import com.vikisol.one.attendance.entity.Attendance;
 import com.vikisol.one.attendance.repository.AttendanceRepository;
+import com.vikisol.one.auth.entity.User;
+import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.employee.service.BackgroundCheckService;
+import com.vikisol.one.employee.service.OnboardingService;
 import com.vikisol.one.leave.entity.LeaveBalance;
 import com.vikisol.one.leave.entity.LeaveType;
 import com.vikisol.one.leave.repository.LeaveBalanceRepository;
 import com.vikisol.one.leave.repository.LeaveTypeRepository;
+import com.vikisol.one.notification.entity.Notification;
+import com.vikisol.one.notification.service.NotificationService;
+import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.settings.repository.HolidayRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +38,10 @@ public class ScheduledTasks {
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveTypeRepository leaveTypeRepository;
     private final HolidayRepository holidayRepository;
+    private final OnboardingService onboardingService;
+    private final BackgroundCheckService backgroundCheckService;
+    private final NotificationService notificationService;
+    private final UserRepository userRepository;
 
     @Scheduled(cron = "0 0 22 * * MON-FRI")
     @Transactional
@@ -93,5 +104,42 @@ public class ScheduledTasks {
             }
         }
         log.info("Initialized {} leave balances for year {}", count, year);
+    }
+
+    // Daily nudge so an incomplete profile doesn't just sit silently: the employee gets a direct
+    // reminder, and HR/CEO/Admin get one digest notification (not one per employee - that would
+    // spam them) summarizing how many people are still pending onboarding/BGV/documents.
+    @Scheduled(cron = "0 0 9 * * *")
+    @Transactional(readOnly = true)
+    public void sendOnboardingReminders() {
+        Page<Employee> employees = employeeRepository.findByIsActiveTrue(Pageable.unpaged());
+        int pendingOnboarding = 0;
+        int pendingBgv = 0;
+
+        for (Employee emp : employees) {
+            if (emp.getUser() == null) continue;
+
+            boolean incomplete = onboardingService.getProfileCompletion(emp.getId()).percent() < 100;
+            if (incomplete) {
+                pendingOnboarding++;
+                notificationService.sendNotification(emp.getUser().getId(),
+                        "Complete your profile",
+                        "Your Vikisol One profile is still incomplete. Please finish the onboarding steps.",
+                        Notification.NotificationType.GENERAL, emp.getId(), "EMPLOYEE_ONBOARDING");
+            }
+            if (!backgroundCheckService.isFullyApproved(emp.getId())) {
+                pendingBgv++;
+            }
+        }
+
+        if (pendingOnboarding > 0 || pendingBgv > 0) {
+            String digest = pendingOnboarding + " employee(s) have an incomplete profile, " + pendingBgv + " employee(s) have pending background verification.";
+            for (User hr : userRepository.findByRoleIn(List.of(RoleEnum.CEO, RoleEnum.HR_MANAGER, RoleEnum.ADMIN))) {
+                notificationService.sendNotification(hr.getId(), "Onboarding status digest", digest,
+                        Notification.NotificationType.GENERAL, null, "ONBOARDING_DIGEST");
+            }
+        }
+
+        log.info("Onboarding reminders sent: {} incomplete profiles, {} pending BGV", pendingOnboarding, pendingBgv);
     }
 }

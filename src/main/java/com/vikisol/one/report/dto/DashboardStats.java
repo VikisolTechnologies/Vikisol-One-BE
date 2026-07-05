@@ -9,5 +9,8 @@ public record DashboardStats(
         long onNoticeCount,
         Map<String, Long> departmentWiseCount,
         Map<String, Long> genderDistribution,
-        Map<String, Long> employmentTypeDistribution
+        Map<String, Long> employmentTypeDistribution,
+        long pendingOnboardingCount,
+        long pendingBgvCount,
+        long pendingDocumentsCount
 ) {}

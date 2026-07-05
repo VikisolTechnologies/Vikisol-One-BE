@@ -265,6 +265,8 @@ public class EmployeeService {
         employee.setLanguagesKnown(request.languagesKnown());
 
         employee = employeeRepository.save(employee);
+        auditService.record("Employee Updated", employee.getEmployeeId(),
+                employee.getFirstName() + " " + employee.getLastName());
         return toResponse(employee);
     }
 

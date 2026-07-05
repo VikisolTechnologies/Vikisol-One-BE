@@ -1,5 +1,6 @@
 package com.vikisol.one.employee.service;
 
+import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.document.repository.DocumentRepository;
 import com.vikisol.one.employee.dto.*;
 import com.vikisol.one.employee.entity.Employee;
@@ -31,6 +32,7 @@ public class OnboardingService {
     private final EmployeeEmploymentHistoryRepository employmentHistoryRepository;
     private final EmployeeSkillRepository skillRepository;
     private final DocumentRepository documentRepository;
+    private final AuditService auditService;
 
     private Employee getEmployeeOrThrow(UUID employeeId) {
         return employeeRepository.findById(employeeId)
@@ -56,7 +58,9 @@ public class OnboardingService {
                 .gradeOrPercentage(request.gradeOrPercentage())
                 .certificateDocumentUrl(request.certificateDocumentUrl())
                 .build();
-        return toResponse(educationRepository.save(education));
+        education = educationRepository.save(education);
+        auditService.record("Education Added", employee.getEmployeeId(), request.degree() + " - " + employee.getFirstName() + " " + employee.getLastName());
+        return toResponse(education);
     }
 
     @Transactional
@@ -94,7 +98,9 @@ public class OnboardingService {
                 .experienceLetterUrl(request.experienceLetterUrl())
                 .relievingLetterUrl(request.relievingLetterUrl())
                 .build();
-        return toResponse(employmentHistoryRepository.save(history));
+        history = employmentHistoryRepository.save(history);
+        auditService.record("Employment History Added", employee.getEmployeeId(), request.companyName() + " - " + employee.getFirstName() + " " + employee.getLastName());
+        return toResponse(history);
     }
 
     @Transactional
@@ -127,7 +133,9 @@ public class OnboardingService {
                 .lastUsed(request.lastUsed())
                 .certified(request.certified() != null && request.certified())
                 .build();
-        return toResponse(skillRepository.save(skill));
+        skill = skillRepository.save(skill);
+        auditService.record("Skill Added", employee.getEmployeeId(), request.skillName() + " - " + employee.getFirstName() + " " + employee.getLastName());
+        return toResponse(skill);
     }
 
     @Transactional

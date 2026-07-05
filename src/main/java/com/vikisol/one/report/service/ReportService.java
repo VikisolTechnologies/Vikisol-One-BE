@@ -1,7 +1,10 @@
 package com.vikisol.one.report.service;
 
+import com.vikisol.one.document.repository.DocumentRepository;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.employee.service.BackgroundCheckService;
+import com.vikisol.one.employee.service.OnboardingService;
 import com.vikisol.one.report.dto.AttendanceReportResponse;
 import com.vikisol.one.report.dto.DashboardStats;
 import com.vikisol.one.report.dto.HeadcountReportResponse;
@@ -21,6 +24,9 @@ import java.util.stream.Collectors;
 public class ReportService {
 
     private final EmployeeRepository employeeRepository;
+    private final OnboardingService onboardingService;
+    private final BackgroundCheckService backgroundCheckService;
+    private final DocumentRepository documentRepository;
 
     public DashboardStats getDashboardStats() {
         List<Employee> allEmployees = employeeRepository.findAll();
@@ -58,9 +64,24 @@ public class ReportService {
                         Collectors.counting()
                 ));
 
+        // Pending-X widgets are computed per active employee rather than a single aggregate SQL
+        // query - consistent with the rest of this method (which already loads all employees into
+        // memory and stream-processes), and at this app's scale (dozens-hundreds of employees) an
+        // N+1-shaped loop here is not a real bottleneck.
+        long pendingOnboardingCount = activeEmployees.stream()
+                .filter(e -> onboardingService.getProfileCompletion(e.getId()).percent() < 100)
+                .count();
+        long pendingBgvCount = activeEmployees.stream()
+                .filter(e -> !backgroundCheckService.isFullyApproved(e.getId()))
+                .count();
+        long pendingDocumentsCount = activeEmployees.stream()
+                .filter(e -> documentRepository.findByEmployeeId(e.getId()).isEmpty())
+                .count();
+
         return new DashboardStats(
                 totalEmployees, activeCount, newJoineesThisMonth, onNoticeCount,
-                departmentWiseCount, genderDistribution, employmentTypeDistribution
+                departmentWiseCount, genderDistribution, employmentTypeDistribution,
+                pendingOnboardingCount, pendingBgvCount, pendingDocumentsCount
         );
     }
 
