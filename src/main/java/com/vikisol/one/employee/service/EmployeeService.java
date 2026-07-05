@@ -179,6 +179,15 @@ public class EmployeeService {
                 .customAllowance(request.customAllowance())
                 .grossSalary(request.grossSalary())
                 .ctc(request.ctc())
+                .nomineeName(request.nomineeName())
+                .nomineeRelation(request.nomineeRelation())
+                .nomineeDateOfBirth(request.nomineeDateOfBirth())
+                .nomineeSharePercentage(request.nomineeSharePercentage())
+                .nomineeGender(request.nomineeGender())
+                .maritalStatus(request.maritalStatus())
+                .nationality(request.nationality())
+                .bloodGroup(request.bloodGroup())
+                .languagesKnown(request.languagesKnown())
                 .isActive(true)
                 .build();
 
@@ -245,6 +254,15 @@ public class EmployeeService {
         employee.setCustomAllowance(request.customAllowance());
         employee.setGrossSalary(request.grossSalary());
         employee.setCtc(request.ctc());
+        employee.setNomineeName(request.nomineeName());
+        employee.setNomineeRelation(request.nomineeRelation());
+        employee.setNomineeDateOfBirth(request.nomineeDateOfBirth());
+        employee.setNomineeSharePercentage(request.nomineeSharePercentage());
+        employee.setNomineeGender(request.nomineeGender());
+        employee.setMaritalStatus(request.maritalStatus());
+        employee.setNationality(request.nationality());
+        employee.setBloodGroup(request.bloodGroup());
+        employee.setLanguagesKnown(request.languagesKnown());
 
         employee = employeeRepository.save(employee);
         return toResponse(employee);
@@ -280,7 +298,8 @@ public class EmployeeService {
                 null, null, null, null, null, null, null, null,
                 r.isActive(), r.createdAt(), r.accountRole(),
                 r.onboardingDocumentsVerified(), r.onboardingAssetsAssigned(),
-                r.onboardingBankDetailsCollected(), r.onboardingInductionCompleted()
+                r.onboardingBankDetailsCollected(), r.onboardingInductionCompleted(),
+                null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -616,7 +635,16 @@ public class EmployeeService {
                 employee.isOnboardingDocumentsVerified(),
                 employee.isOnboardingAssetsAssigned(),
                 employee.isOnboardingBankDetailsCollected(),
-                employee.isOnboardingInductionCompleted()
+                employee.isOnboardingInductionCompleted(),
+                employee.getNomineeName(),
+                employee.getNomineeRelation(),
+                employee.getNomineeDateOfBirth(),
+                employee.getNomineeSharePercentage(),
+                employee.getNomineeGender(),
+                employee.getMaritalStatus(),
+                employee.getNationality(),
+                employee.getBloodGroup(),
+                employee.getLanguagesKnown()
         );
     }
 

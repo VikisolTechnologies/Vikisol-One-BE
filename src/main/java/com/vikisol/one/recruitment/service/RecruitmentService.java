@@ -276,7 +276,8 @@ public class RecruitmentService {
                 breakup.get("specialAllowance"),
                 breakup.get("customAllowance"),
                 breakup.get("grossSalary"),
-                breakup.get("ctc")
+                breakup.get("ctc"),
+                null, null, null, null, null, null, null, null, null
         );
         EmployeeResponse employee = employeeService.createEmployee(employeeRequest);
 

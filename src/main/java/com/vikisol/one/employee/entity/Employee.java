@@ -95,6 +95,19 @@ public class Employee extends BaseEntity {
     private String emergencyContactPhone;
     private String emergencyContactRelation;
 
+    private String nomineeName;
+    private String nomineeRelation;
+    private LocalDate nomineeDateOfBirth;
+    private Integer nomineeSharePercentage;
+
+    @Enumerated(EnumType.STRING)
+    private Gender nomineeGender;
+
+    private String maritalStatus;
+    private String nationality;
+    private String bloodGroup;
+    private String languagesKnown;
+
     private String profilePictureUrl;
 
     private BigDecimal basicSalary;

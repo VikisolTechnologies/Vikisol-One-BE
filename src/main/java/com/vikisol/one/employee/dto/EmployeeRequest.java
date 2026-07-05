@@ -49,6 +49,15 @@ public record EmployeeRequest(
         BigDecimal specialAllowance,
         BigDecimal customAllowance,
         BigDecimal grossSalary,
-        BigDecimal ctc
+        BigDecimal ctc,
+        String nomineeName,
+        String nomineeRelation,
+        LocalDate nomineeDateOfBirth,
+        Integer nomineeSharePercentage,
+        Employee.Gender nomineeGender,
+        String maritalStatus,
+        String nationality,
+        String bloodGroup,
+        String languagesKnown
 ) {
 }

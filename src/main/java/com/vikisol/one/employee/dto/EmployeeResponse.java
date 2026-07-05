@@ -61,6 +61,15 @@ public record EmployeeResponse(
         boolean onboardingDocumentsVerified,
         boolean onboardingAssetsAssigned,
         boolean onboardingBankDetailsCollected,
-        boolean onboardingInductionCompleted
+        boolean onboardingInductionCompleted,
+        String nomineeName,
+        String nomineeRelation,
+        LocalDate nomineeDateOfBirth,
+        Integer nomineeSharePercentage,
+        Employee.Gender nomineeGender,
+        String maritalStatus,
+        String nationality,
+        String bloodGroup,
+        String languagesKnown
 ) {
 }
