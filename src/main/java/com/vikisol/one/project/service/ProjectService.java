@@ -13,6 +13,9 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -199,6 +202,18 @@ public class ProjectService {
 
     // ─── Mappers ───
 
+    // Project budget is confidential to the CEO only (Super Admin/HR/Manager/Team Lead/Employee
+    // must never receive it, even though they can otherwise read this same project). Since every
+    // read path (get/list/my-projects/dashboard) shares this one mapper, redacting here is the
+    // single point of enforcement - callers cannot bypass it by hitting a different endpoint.
+    private boolean callerIsCeo() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return false;
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_CEO"::equals);
+    }
+
     private ProjectResponse mapProject(Project p) {
         ProjectResponse r = new ProjectResponse();
         r.setId(p.getId());
@@ -211,7 +226,7 @@ public class ProjectService {
         r.setStatus(p.getStatus());
         r.setPriority(p.getPriority());
         r.setProjectManagerId(p.getProjectManagerId());
-        r.setBudget(p.getBudget());
+        r.setBudget(callerIsCeo() ? p.getBudget() : null);
         r.setActive(p.isActive());
         r.setCreatedAt(p.getCreatedAt());
         r.setUpdatedAt(p.getUpdatedAt());
