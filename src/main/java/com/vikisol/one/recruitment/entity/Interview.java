@@ -54,7 +54,10 @@ public class Interview extends BaseEntity {
     // have; `orderIndex` is what the frontend uses to reorder a candidate's rounds independently
     // of when each round happened to be scheduled.
     private int round;
-    private int orderIndex;
+
+    // Boxed - new column on a table that already had rows; see Candidate.relevantExperienceYears
+    // for why this must be nullable instead of a NOT-NULL-by-default primitive.
+    private Integer orderIndex;
 
     private LocalDate scheduledDate;
     private LocalTime scheduledTime;

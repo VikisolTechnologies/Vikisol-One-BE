@@ -42,7 +42,12 @@ public class Candidate extends BaseEntity {
     private EmploymentType employmentType;
 
     private double experienceYears;
-    private double relevantExperienceYears;
+
+    // Boxed (not primitive) - added after this table already had rows, and Hibernate's
+    // auto-DDL adds new primitive columns as NOT NULL with no default, which Postgres rejects
+    // against existing data ("column contains null values"). Nullable Double avoids that; see
+    // mapCandidate()'s null-safe read.
+    private Double relevantExperienceYears;
 
     @Column(columnDefinition = "TEXT")
     private String certifications;

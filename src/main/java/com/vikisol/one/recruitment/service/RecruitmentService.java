@@ -996,7 +996,7 @@ public class RecruitmentService {
         r.setCurrentDesignation(c.getCurrentDesignation());
         r.setEmploymentType(c.getEmploymentType());
         r.setExperienceYears(c.getExperienceYears());
-        r.setRelevantExperienceYears(c.getRelevantExperienceYears());
+        r.setRelevantExperienceYears(c.getRelevantExperienceYears() != null ? c.getRelevantExperienceYears() : 0.0);
         r.setCertifications(c.getCertifications());
         r.setExpectedSalary(c.getExpectedSalary());
         r.setCurrentCtc(c.getCurrentCtc());
@@ -1063,7 +1063,7 @@ public class RecruitmentService {
                     .ifPresent(e -> r.setHrManagerName(e.getFirstName() + " " + e.getLastName()));
         }
         r.setRound(i.getRound());
-        r.setOrderIndex(i.getOrderIndex());
+        r.setOrderIndex(i.getOrderIndex() != null ? i.getOrderIndex() : 0);
         r.setScheduledDate(i.getScheduledDate());
         r.setScheduledTime(i.getScheduledTime());
         r.setDuration(i.getDuration());
