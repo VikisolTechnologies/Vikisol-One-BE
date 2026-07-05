@@ -1,7 +1,9 @@
 package com.vikisol.one.auth.service;
 
 import com.vikisol.one.auth.dto.*;
+import com.vikisol.one.auth.entity.ActivationToken;
 import com.vikisol.one.auth.entity.User;
+import com.vikisol.one.auth.repository.ActivationTokenRepository;
 import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.common.exception.BadRequestException;
 import com.vikisol.one.security.jwt.JwtTokenProvider;
@@ -27,6 +29,7 @@ public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
+    private final ActivationTokenRepository activationTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -88,5 +91,33 @@ public class AuthService {
 
         user.setPassword(passwordEncoder.encode(request.newPassword()));
         userRepository.save(user);
+    }
+
+    @Transactional(readOnly = true)
+    public ActivationTokenInfo inspectActivationToken(String token) {
+        return activationTokenRepository.findByToken(token)
+                .filter(t -> !t.isUsed() && t.getExpiresAt().isAfter(Instant.now()))
+                .map(t -> new ActivationTokenInfo(true, t.getUser().getFirstName(), t.getUser().getEmail()))
+                .orElseGet(() -> new ActivationTokenInfo(false, null, null));
+    }
+
+    @Transactional
+    public void activateAccount(ActivateAccountRequest request) {
+        ActivationToken activationToken = activationTokenRepository.findByToken(request.token())
+                .orElseThrow(() -> new BadRequestException("This activation link is invalid"));
+        if (activationToken.isUsed()) {
+            throw new BadRequestException("This activation link has already been used");
+        }
+        if (activationToken.getExpiresAt().isBefore(Instant.now())) {
+            throw new BadRequestException("This activation link has expired. Please ask HR to resend it.");
+        }
+
+        User user = activationToken.getUser();
+        user.setPassword(passwordEncoder.encode(request.password()));
+        user.setEnabled(true);
+        userRepository.save(user);
+
+        activationToken.setUsed(true);
+        activationTokenRepository.save(activationToken);
     }
 }

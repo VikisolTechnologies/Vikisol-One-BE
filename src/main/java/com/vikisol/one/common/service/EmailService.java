@@ -45,6 +45,10 @@ public class EmailService {
     @Value("${app.logo-url:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}")
     private String logoUrl;
 
+    // Base URL of the deployed frontend, used to build links (activation, etc.) inside emails.
+    @Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -347,31 +351,46 @@ public class EmailService {
         sendEmail(managerEmail, subject, body);
     }
 
-    public void sendWelcomeEmail(String email, String name, String tempPassword) {
-        String subject = "Welcome to Vikisol One - Your Login Details";
+    // Sent to the employee's PERSONAL email (never official - they have no access to that inbox
+    // until this activation link is used), with a one-time link instead of a temp password. No
+    // password ever appears in an email under this flow.
+    public void sendActivationEmail(String personalEmail, String name, String activationLink) {
+        String subject = "Welcome to Vikisol Technologies - Activate Your Account";
         String body =
-                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Welcome aboard, " + name + "! &#127881;</h2>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">Your account on <b>Vikisol One</b>, our HR platform, has been created. You can use it to view your payslips, apply for leave, log timesheets, and more.</p>"
-                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
-                + rowHtml("Login Email", email)
-                + rowHtml("Temporary Password", tempPassword)
-                + "</table>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">For security, please log in and change your password as soon as possible.</p>"
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Welcome to Vikisol Technologies, " + name + "! &#127881;</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Your account on <b>Vikisol One</b>, our HR platform, has been created. Click below to activate your account and set your own password.</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px;\">"
+                + "<tr><td align=\"center\">"
+                + "<a href=\"" + activationLink + "\" style=\"display:inline-block;background:#FF6A00;color:#fff;text-decoration:none;font-weight:600;padding:12px 28px;border-radius:8px;\">Activate Account</a>"
+                + "</td></tr></table>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">This link expires in 24 hours. If it expires, ask HR to resend your activation email.</p>"
                 + signatureBlock("Regards", "Human Resources");
-        sendHtmlEmail(email, subject, brandedTemplate("Your Vikisol One account is ready", body));
+        sendHtmlEmail(personalEmail, subject, brandedTemplate("Activate your Vikisol One account", body));
     }
 
-    public void sendPasswordResetEmail(String email, String name, String tempPassword) {
-        String subject = "Your Vikisol One Password Has Been Reset";
+    public void sendAssessmentResultEmail(String email, String name, String testName, double score, double maxScore, boolean passed) {
+        String subject = (passed ? "Congratulations " : "Your Result: ") + name + " - " + testName + " Assessment";
         String body =
-                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Password Reset</h2>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">Hi " + name + ", your Vikisol One password has been reset by an administrator. Use the temporary password below to log in.</p>"
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">" + (passed ? "Well done, " + name + "! &#127881;" : "Thank you, " + name) + "</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">You have completed the <b>" + testName + "</b> assessment on Vikisol Arena.</p>"
                 + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
-                + rowHtml("Login Email", email)
-                + rowHtml("Temporary Password", tempPassword)
+                + rowHtml("Score", score + " / " + maxScore)
+                + rowHtml("Result", passed ? "PASSED" : "NOT SHORTLISTED")
                 + "</table>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">For security, please log in and change this password as soon as possible. If you did not expect this reset, contact HR immediately.</p>"
-                + signatureBlock("Regards", "Human Resources");
-        sendHtmlEmail(email, subject, brandedTemplate("Your Vikisol One password was reset", body));
+                + "<p style=\"margin:0 0 20px;color:#444;\">"
+                + (passed ? "Our recruitment team will reach out shortly to schedule your next round." : "We appreciate the time you invested and encourage you to apply again in the future.")
+                + "</p>"
+                + signatureBlock("Regards", "Talent Acquisition Team");
+        sendHtmlEmail(email, subject, brandedTemplate("Your assessment result from Vikisol", body));
     }
+
+    public void sendAssessmentNotificationEmail(String email, String candidateName, String candidateEmail, String testName,
+                                                 double score, double maxScore, boolean passed) {
+        String subject = "New Assessment Result - " + candidateName + " (" + (passed ? "PASS" : "FAIL") + ")";
+        String body = String.format(
+                "A candidate has completed an assessment on Vikisol Arena.\n\nCandidate: %s\nEmail: %s\nTest: %s\nScore: %s / %s\nResult: %s\n\nLog in to Vikisol One to view full details and move the candidate to interview.\n\nRegards,\nVikisol One",
+                candidateName, candidateEmail, testName, score, maxScore, passed ? "PASS" : "FAIL");
+        sendEmail(email, subject, body);
+    }
+
 }

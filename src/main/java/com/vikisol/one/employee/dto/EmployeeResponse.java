@@ -14,6 +14,8 @@ public record EmployeeResponse(
         String lastName,
         String email,
         String phone,
+        String personalEmail,
+        String personalMobile,
         LocalDate dateOfBirth,
         Employee.Gender gender,
         UUID departmentId,

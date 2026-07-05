@@ -55,6 +55,13 @@ public class SecurityConfig {
                         // (previously they were, which meant an unauthenticated call 500'd with a
                         // NullPointerException on the principal instead of a clean 401).
                         .requestMatchers("/auth/login").permitAll()
+                        // Public by necessity - the employee hasn't logged in yet when activating
+                        // their account. Guarded by the token itself (random, single-use, expiring),
+                        // not by session auth.
+                        .requestMatchers("/auth/activate", "/auth/activate/**").permitAll()
+                        // Called by the separately-deployed Vikisol Arena app, which has no HRLMS
+                        // user session - auth is enforced inside the controller via a shared API key.
+                        .requestMatchers("/assessments/webhook").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/swagger-ui/**").permitAll()
                         .requestMatchers("/v3/api-docs/**").permitAll()

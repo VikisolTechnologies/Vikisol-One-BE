@@ -1,6 +1,8 @@
 package com.vikisol.one.employee.service;
 
 import com.vikisol.one.audit.service.AuditService;
+import com.vikisol.one.auth.entity.ActivationToken;
+import com.vikisol.one.auth.repository.ActivationTokenRepository;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.common.service.FileModule;
@@ -38,6 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,6 +54,7 @@ public class EmployeeService {
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final UserRepository userRepository;
+    private final ActivationTokenRepository activationTokenRepository;
     private final PayrollService payrollService;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
@@ -60,12 +65,16 @@ public class EmployeeService {
     private final DocumentService documentService;
     private final DocumentGenerationService documentGenerationService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Duration ACTIVATION_TOKEN_TTL = Duration.ofHours(24);
 
-    private String generateTempPassword() {
-        StringBuilder sb = new StringBuilder(12);
-        for (int i = 0; i < 12; i++) {
+    private String generateRandomToken() {
+        StringBuilder sb = new StringBuilder(32);
+        for (int i = 0; i < 32; i++) {
             sb.append(TEMP_PASSWORD_CHARS.charAt(RANDOM.nextInt(TEMP_PASSWORD_CHARS.length())));
         }
         return sb.toString();
@@ -73,9 +82,9 @@ public class EmployeeService {
 
     /**
      * Every employee needs a way to log in. If no userId was supplied and no account exists yet
-     * for this email, provision one (defaulting to EMPLOYEE role) and email the temp password.
-     * This is what makes "HR adds an employee" actually result in a usable login for 200+ staff,
-     * instead of a profile record nobody can sign into.
+     * for this email, provision one (defaulting to EMPLOYEE role) - disabled, with an unusable
+     * random password - and email an activation link to their PERSONAL address so they can set
+     * their own password. No password is ever emailed under this flow (see sendActivationEmail).
      */
     private User resolveOrProvisionUser(EmployeeRequest request) {
         if (request.userId() != null) {
@@ -85,20 +94,32 @@ public class EmployeeService {
             return null;
         }
         return userRepository.findByEmail(request.email()).orElseGet(() -> {
-            String tempPassword = generateTempPassword();
             User newUser = User.builder()
                     .email(request.email())
-                    .password(passwordEncoder.encode(tempPassword))
+                    .password(passwordEncoder.encode(generateRandomToken()))
                     .firstName(request.firstName())
                     .lastName(request.lastName())
                     .role(RoleEnum.EMPLOYEE)
-                    .enabled(true)
+                    .enabled(false)
                     .accountNonLocked(true)
                     .build();
             newUser = userRepository.save(newUser);
-            emailService.sendWelcomeEmail(request.email(), request.firstName() + " " + request.lastName(), tempPassword);
+            issueActivationToken(newUser, request.personalEmail() != null ? request.personalEmail() : request.email());
             return newUser;
         });
+    }
+
+    private void issueActivationToken(User user, String sendTo) {
+        String token = generateRandomToken();
+        ActivationToken activationToken = ActivationToken.builder()
+                .token(token)
+                .user(user)
+                .expiresAt(Instant.now().plus(ACTIVATION_TOKEN_TTL))
+                .used(false)
+                .build();
+        activationTokenRepository.save(activationToken);
+        String activationLink = frontendUrl + "/activate?token=" + token;
+        emailService.sendActivationEmail(sendTo, user.getFirstName() + " " + user.getLastName(), activationLink);
     }
 
     @Transactional
@@ -120,6 +141,8 @@ public class EmployeeService {
                 .lastName(request.lastName())
                 .email(request.email())
                 .phone(request.phone())
+                .personalEmail(request.personalEmail())
+                .personalMobile(request.personalMobile())
                 .dateOfBirth(request.dateOfBirth())
                 .gender(request.gender())
                 .department(department)
@@ -184,6 +207,8 @@ public class EmployeeService {
         employee.setLastName(request.lastName());
         employee.setEmail(request.email());
         employee.setPhone(request.phone());
+        employee.setPersonalEmail(request.personalEmail());
+        employee.setPersonalMobile(request.personalMobile());
         employee.setDateOfBirth(request.dateOfBirth());
         employee.setGender(request.gender());
         employee.setDepartment(department);
@@ -242,7 +267,8 @@ public class EmployeeService {
     private EmployeeResponse maskSensitiveFields(EmployeeResponse r) {
         return new EmployeeResponse(
                 r.id(), r.employeeId(), r.firstName(), r.lastName(), r.email(), r.phone(),
-                null, null,
+                null, null, // personalEmail/personalMobile - PII, not directory-safe
+                null, null, // dateOfBirth/gender
                 r.departmentId(), r.departmentName(), r.designationId(), r.designationTitle(),
                 r.dateOfJoining(), null, null,
                 r.reportingManagerId(), r.reportingManagerName(),
@@ -279,8 +305,11 @@ public class EmployeeService {
                 .toList();
     }
 
-    // CEO/HR resets an existing employee's login password to a new temp password and emails it,
-    // reusing the same welcome-email template used when the account was first provisioned.
+    // CEO/HR resets an existing employee's login: disables the account and issues a fresh
+    // activation link (to their personal email, same as first-login provisioning) rather than
+    // emailing a new password - keeps "no password is ever emailed" true for every reset path,
+    // not just initial account creation.
+    @Transactional
     public void resetPassword(UUID employeeId) {
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
@@ -288,10 +317,10 @@ public class EmployeeService {
         if (user == null) {
             throw new RuntimeException("This employee has no login account to reset");
         }
-        String tempPassword = generateTempPassword();
-        user.setPassword(passwordEncoder.encode(tempPassword));
+        user.setPassword(passwordEncoder.encode(generateRandomToken()));
+        user.setEnabled(false);
         userRepository.save(user);
-        emailService.sendPasswordResetEmail(user.getEmail(), employee.getFirstName() + " " + employee.getLastName(), tempPassword);
+        issueActivationToken(user, employee.getPersonalEmail() != null ? employee.getPersonalEmail() : employee.getEmail());
         auditService.record("Password Reset", employee.getEmployeeId(),
                 "Password reset for " + employee.getFirstName() + " " + employee.getLastName());
     }
@@ -540,6 +569,8 @@ public class EmployeeService {
                 employee.getLastName(),
                 employee.getEmail(),
                 employee.getPhone(),
+                employee.getPersonalEmail(),
+                employee.getPersonalMobile(),
                 employee.getDateOfBirth(),
                 employee.getGender(),
                 employee.getDepartment() != null ? employee.getDepartment().getId() : null,

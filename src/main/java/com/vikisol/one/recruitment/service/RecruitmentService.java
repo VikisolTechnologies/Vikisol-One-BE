@@ -252,6 +252,11 @@ public class RecruitmentService {
                 candidate.getLastName(),
                 candidate.getEmail(),
                 candidate.getPhone(),
+                // The candidate's recruitment-stage email/phone are their personal contact details -
+                // preserved here so post-hire activation/joining communication still reaches them
+                // even after `email`/`phone` above later get repointed to official company contacts.
+                candidate.getEmail(),
+                candidate.getPhone(),
                 null,
                 null,
                 candidate.getOfferedDepartment().getId(),

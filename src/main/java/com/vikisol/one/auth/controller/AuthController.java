@@ -33,6 +33,17 @@ public class AuthController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Password changed successfully", null));
     }
 
+    @GetMapping("/activate/{token}")
+    public ResponseEntity<ApiResponse<ActivationTokenInfo>> inspectActivationToken(@PathVariable String token) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Activation token checked", authService.inspectActivationToken(token)));
+    }
+
+    @PostMapping("/activate")
+    public ResponseEntity<ApiResponse<Void>> activateAccount(@Valid @RequestBody ActivateAccountRequest request) {
+        authService.activateAccount(request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Account activated successfully", null));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<Map<String, Object>>> me(
             @AuthenticationPrincipal UserPrincipal principal) {

@@ -33,10 +33,20 @@ public class Employee extends BaseEntity {
     @Column(nullable = false)
     private String lastName;
 
+    // Official email doubles as the login username (User.email) and the channel for payroll/
+    // internal HRMS communication - never used for account activation, since the employee can't
+    // read it until they've already logged in.
     @Column(nullable = false)
     private String email;
 
     private String phone;
+
+    // Personal email/mobile - used only for pre-login communication (activation link, password
+    // recovery, offer/joining instructions) since the employee has no access to their official
+    // inbox until their account is actually activated. Kept as separate columns rather than
+    // overloading `email`/`phone`, per the explicit "never replace one with the other" requirement.
+    private String personalEmail;
+    private String personalMobile;
 
     private LocalDate dateOfBirth;
 

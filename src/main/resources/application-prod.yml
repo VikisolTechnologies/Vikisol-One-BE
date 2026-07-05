@@ -43,6 +43,7 @@ cloudinary:
 
 app:
   logo-url: ${LOGO_URL:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}
+  frontend-url: ${FRONTEND_URL:https://hrlms.vikisol.in}
 
   jwt:
     # No fallback default on purpose - a hardcoded secret baked into source control (even as a
@@ -54,6 +55,14 @@ app:
 
   cors:
     allowed-origins: ${CORS_ORIGINS:https://hrlms.vikisol.in,https://vikisol-one-hrlms.vercel.app}
+
+arena:
+  webhook:
+    # No fallback in prod - same rationale as the JWT secret above.
+    api-key: ${ARENA_WEBHOOK_API_KEY}
+
+assessment:
+  pass-threshold-percent: ${ASSESSMENT_PASS_THRESHOLD:60}
 
 management:
   endpoints:
