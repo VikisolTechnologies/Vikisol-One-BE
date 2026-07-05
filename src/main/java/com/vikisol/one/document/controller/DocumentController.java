@@ -27,15 +27,15 @@ public class DocumentController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<DocumentResponse>> uploadDocument(
-            @Valid @RequestBody DocumentUploadRequest request) {
-        DocumentResponse document = documentService.uploadDocument(request);
+            @Valid @RequestBody DocumentUploadRequest request, @AuthenticationPrincipal UserPrincipal principal) {
+        DocumentResponse document = documentService.uploadDocument(request, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Document uploaded successfully", document));
     }
 
     @GetMapping("/employee/{employeeId}")
     public ResponseEntity<ApiResponse<List<DocumentResponse>>> getEmployeeDocuments(
-            @PathVariable UUID employeeId) {
-        List<DocumentResponse> documents = documentService.getEmployeeDocuments(employeeId);
+            @PathVariable UUID employeeId, @AuthenticationPrincipal UserPrincipal principal) {
+        List<DocumentResponse> documents = documentService.getEmployeeDocuments(employeeId, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Documents retrieved successfully", documents));
     }
 

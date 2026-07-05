@@ -1,6 +1,7 @@
 package com.vikisol.one.document.service;
 
 import com.vikisol.one.audit.service.AuditService;
+import com.vikisol.one.common.exception.BadRequestException;
 import com.vikisol.one.document.dto.DocumentResponse;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
@@ -17,7 +18,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,6 +32,32 @@ public class DocumentService {
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
 
+    // Document types Finance may see for someone else's record - only what payroll actually
+    // needs (tax/identity for TDS filing, payslips/salary docs), never education/personal proofs.
+    private static final Set<Document.DocumentType> FINANCE_VISIBLE_TYPES = EnumSet.of(
+            Document.DocumentType.TAX_FORM, Document.DocumentType.ID_PROOF, Document.DocumentType.PAYSLIP,
+            Document.DocumentType.SALARY_CERTIFICATE, Document.DocumentType.SALARY_REVISION_LETTER);
+
+    // Types a Manager must NOT see for a report unless it's their own record - identity/financial
+    // documents (PAN/Aadhaar-class ID proof, address proof, tax forms, salary-related letters),
+    // per "managers should not automatically see identity documents... or bank account details".
+    private static final Set<Document.DocumentType> MANAGER_HIDDEN_TYPES = EnumSet.of(
+            Document.DocumentType.ID_PROOF, Document.DocumentType.ADDRESS_PROOF, Document.DocumentType.TAX_FORM,
+            Document.DocumentType.PAYSLIP, Document.DocumentType.SALARY_CERTIFICATE, Document.DocumentType.SALARY_REVISION_LETTER);
+
+    private boolean hasRole(UserPrincipal principal, String role) {
+        return principal.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_" + role));
+    }
+
+    private boolean isSelf(UUID employeeId, UserPrincipal principal) {
+        return employeeRepository.findById(employeeId)
+                .map(e -> e.getUser() != null && e.getUser().getId().equals(principal.getId()))
+                .orElse(false);
+    }
+
+    // Trusted internal callers only (system-generated offer/experience/relieving letters etc.) -
+    // no principal to check because these run as a server-side action already gated by their own
+    // endpoint's @PreAuthorize, not a direct user-supplied upload.
     public DocumentResponse uploadDocument(DocumentUploadRequest request) {
         Employee employee = employeeRepository.findById(request.employeeId())
                 .orElseThrow(() -> new RuntimeException("Employee not found with id: " + request.employeeId()));
@@ -47,16 +76,46 @@ public class DocumentService {
         return toResponse(documentRepository.save(document));
     }
 
-    public List<DocumentResponse> getEmployeeDocuments(UUID employeeId) {
-        return documentRepository.findByEmployeeId(employeeId).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+    // Public-facing path (the /documents POST endpoint) - a real user is uploading a document
+    // themselves, so it must be permission-checked: self, or CEO/HR/Admin uploading on someone's
+    // behalf. Previously this endpoint had no restriction at all - any authenticated role,
+    // including a plain EMPLOYEE, could upload a document tagged to any other employee's record.
+    public DocumentResponse uploadDocument(DocumentUploadRequest request, UserPrincipal principal) {
+        boolean privileged = hasRole(principal, "CEO") || hasRole(principal, "HR_MANAGER") || hasRole(principal, "ADMIN");
+        if (!privileged && !isSelf(request.employeeId(), principal)) {
+            throw new BadRequestException("You can only upload documents to your own profile");
+        }
+        return uploadDocument(request);
+    }
+
+    // Enforces who may view whose documents, and which document TYPES they may see - frontend
+    // hiding is UX only (per this app's established security posture); this is the real boundary,
+    // since this endpoint is what actually returns PAN/Aadhaar/bank-proof file links.
+    public List<DocumentResponse> getEmployeeDocuments(UUID employeeId, UserPrincipal principal) {
+        boolean self = isSelf(employeeId, principal);
+        boolean fullAccess = hasRole(principal, "CEO") || hasRole(principal, "HR_MANAGER") || hasRole(principal, "ADMIN");
+        boolean isFinance = hasRole(principal, "FINANCE");
+        boolean isManager = hasRole(principal, "MANAGER");
+
+        if (!self && !fullAccess && !isFinance && !isManager) {
+            throw new BadRequestException("You do not have permission to view this employee's documents");
+        }
+
+        List<Document> documents = documentRepository.findByEmployeeId(employeeId);
+        if (self || fullAccess) {
+            return documents.stream().map(this::toResponse).collect(Collectors.toList());
+        }
+        if (isFinance) {
+            return documents.stream().filter(d -> FINANCE_VISIBLE_TYPES.contains(d.getType())).map(this::toResponse).collect(Collectors.toList());
+        }
+        // Manager: everything except the identity/financial types
+        return documents.stream().filter(d -> !MANAGER_HIDDEN_TYPES.contains(d.getType())).map(this::toResponse).collect(Collectors.toList());
     }
 
     public List<DocumentResponse> getMyDocuments(UserPrincipal principal) {
         Employee employee = employeeRepository.findByUserId(principal.getId())
                 .orElseThrow(() -> new RuntimeException("Employee not found for user"));
-        return getEmployeeDocuments(employee.getId());
+        return documentRepository.findByEmployeeId(employee.getId()).stream().map(this::toResponse).collect(Collectors.toList());
     }
 
     public DocumentResponse verifyDocument(UUID documentId, UserPrincipal principal) {
