@@ -152,6 +152,19 @@ public class EmailService {
         }
     }
 
+    // Multi-attachment variant - needed for the offboarding "exit package" email, which bundles
+    // whichever generated documents (experience letter, relieving letter, payslips, etc.) actually
+    // exist for the employee rather than a single PDF.
+    @Async
+    public void sendHtmlEmailWithAttachments(String to, String subject, String htmlBody, List<Attachment> attachments) {
+        try {
+            send(to, subject, htmlBody, attachments);
+            log.info("HTML email with {} attachment(s) sent to {}: {}", attachments.size(), to, subject);
+        } catch (Exception e) {
+            log.warn("Failed to send HTML email with attachments to {}: {}", to, e.getMessage());
+        }
+    }
+
     /** Wraps body content in Vikisol's black/white/orange brand shell. */
     private String brandedTemplate(String preheader, String bodyHtml) {
         return "<!DOCTYPE html><html><body style=\"margin:0;padding:0;background:#f4f4f5;font-family:Segoe UI,Helvetica,Arial,sans-serif;\">"
@@ -441,6 +454,26 @@ public class EmailService {
                 + signatureBlock("Regards", "Human Resources");
 
         sendHtmlEmail(email, subject, brandedTemplate("Your resignation has been acknowledged", body));
+    }
+
+    // Farewell email sent as the final step of offboarding, once the exit package (whatever
+    // documents actually exist for the employee) has been assembled - see OffboardingService.
+    public void sendExitPackageEmail(String personalEmail, String name, List<Attachment> attachments) {
+        String subject = "Farewell from Vikisol Technologies - " + name;
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Farewell, " + name + "</h2>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">Dear " + name + ",</p>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">Thank you for being part of Vikisol Technologies.</p>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">Your dedication and contributions have helped us grow, and we truly appreciate everything you've done.</p>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">We wish you continued success in your future journey.</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\"><b>Once a Vikisol employee, Always a member of the Vikisol family.</b></p>"
+                + signatureBlock("Warm Regards", "Human Resources");
+        String html = brandedTemplate("Farewell from Vikisol Technologies", body);
+        if (attachments != null && !attachments.isEmpty()) {
+            sendHtmlEmailWithAttachments(personalEmail, subject, html, attachments);
+        } else {
+            sendHtmlEmail(personalEmail, subject, html);
+        }
     }
 
     public void sendTimesheetSubmittedNotification(String managerEmail, String employeeName, String weekLabel) {

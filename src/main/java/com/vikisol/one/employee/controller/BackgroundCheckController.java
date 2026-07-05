@@ -30,7 +30,7 @@ public class BackgroundCheckController {
     public ResponseEntity<ApiResponse<List<BackgroundCheckResponse>>> getForEmployee(
             @PathVariable UUID employeeId, @AuthenticationPrincipal UserPrincipal principal) {
         boolean privileged = principal.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_RECRUITER"));
         boolean isSelf = employeeRepository.findById(employeeId)
                 .map(e -> e.getUser() != null && e.getUser().getId().equals(principal.getId()))
                 .orElse(false);

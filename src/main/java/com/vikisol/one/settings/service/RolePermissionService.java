@@ -22,19 +22,20 @@ public class RolePermissionService {
     private final RolePermissionRepository rolePermissionRepository;
 
     public static final List<String> MODULES = List.of(
-            "dashboard", "employees", "recruitment", "assessments", "new-hires", "projects", "resources", "attendance",
+            "dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "projects", "resources", "attendance",
             "leave", "payroll", "timesheets", "tickets", "assets", "performance",
             "org-chart", "reports", "documents", "settings"
     );
 
     private static final Map<RoleEnum, Set<String>> DEFAULTS = Map.of(
             RoleEnum.CEO, Set.copyOf(MODULES),
-            RoleEnum.ADMIN, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "settings"),
-            RoleEnum.HR_MANAGER, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "settings"),
+            RoleEnum.ADMIN, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "settings"),
+            RoleEnum.HR_MANAGER, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "settings"),
             // Managers are operational leads, not part of hiring/compensation approval - "new-hires" belongs to HR only.
-            RoleEnum.MANAGER, Set.of("dashboard", "employees", "projects", "resources", "timesheets", "leave", "attendance", "tickets", "performance", "org-chart", "reports"),
-            RoleEnum.EMPLOYEE, Set.of("dashboard", "projects", "timesheets", "leave", "attendance", "payroll", "tickets", "performance", "documents"),
-            RoleEnum.RECRUITER, Set.of("dashboard", "recruitment", "assessments", "reports"),
+            // They do get "offboarding" (to act on their reports' exit workflow) but not BGV or new-hires.
+            RoleEnum.MANAGER, Set.of("dashboard", "employees", "offboarding", "projects", "resources", "timesheets", "leave", "attendance", "tickets", "performance", "org-chart", "reports"),
+            RoleEnum.EMPLOYEE, Set.of("dashboard", "offboarding", "projects", "timesheets", "leave", "attendance", "payroll", "tickets", "performance", "documents"),
+            RoleEnum.RECRUITER, Set.of("dashboard", "recruitment", "assessments", "background-verification", "reports"),
             RoleEnum.FINANCE, Set.of("dashboard", "payroll", "reports")
     );
 

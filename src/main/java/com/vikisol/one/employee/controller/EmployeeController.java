@@ -9,6 +9,7 @@ import com.vikisol.one.employee.dto.HikeRequest;
 import com.vikisol.one.employee.dto.OnboardingChecklistRequest;
 import com.vikisol.one.employee.dto.ResignationRequest;
 import com.vikisol.one.employee.service.EmployeeService;
+import com.vikisol.one.employee.service.EmployeeTimelineService;
 import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import java.util.UUID;
 public class EmployeeController {
 
     private final EmployeeService employeeService;
+    private final EmployeeTimelineService employeeTimelineService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN','MANAGER')")
@@ -168,5 +170,19 @@ public class EmployeeController {
     public ResponseEntity<ApiResponse<EmployeeResponse>> updateOnboarding(@PathVariable UUID id, @RequestBody OnboardingChecklistRequest request) {
         EmployeeResponse employee = employeeService.updateOnboardingChecklist(id, request);
         return ResponseEntity.ok(new ApiResponse<>(true, "Onboarding checklist updated", employee));
+    }
+
+    // Manual HR override for lifecycle transitions nothing else drives automatically (e.g. PROBATION -> CONFIRMED).
+    @PutMapping("/{id}/lifecycle-status")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> updateLifecycleStatus(
+            @PathVariable UUID id, @RequestBody com.vikisol.one.employee.dto.LifecycleStatusRequest request) {
+        EmployeeResponse employee = employeeService.updateLifecycleStatus(id, request.status());
+        return ResponseEntity.ok(new ApiResponse<>(true, "Lifecycle status updated", employee));
+    }
+
+    @GetMapping("/{employeeId}/timeline")
+    public ResponseEntity<ApiResponse<List<com.vikisol.one.employee.dto.EmployeeTimelineEntry>>> getTimeline(@PathVariable UUID employeeId) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Employee timeline retrieved", employeeTimelineService.getTimeline(employeeId)));
     }
 }

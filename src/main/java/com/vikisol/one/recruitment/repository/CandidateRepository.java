@@ -15,6 +15,8 @@ public interface CandidateRepository extends JpaRepository<Candidate, UUID> {
 
     Optional<Candidate> findByEmail(String email);
 
+    Optional<Candidate> findByConvertedEmployeeId(String convertedEmployeeId);
+
     List<Candidate> findByStatus(Candidate.Status status);
 
     Page<Candidate> findByJobPostingId(UUID jobPostingId, Pageable pageable);

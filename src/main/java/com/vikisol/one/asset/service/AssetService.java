@@ -152,6 +152,28 @@ public class AssetService {
                 .stream().map(this::mapToAssignmentResponse).toList();
     }
 
+    // Marks a specific assignment returned by its id rather than by (asset, active-assignment)
+    // lookup - used by OffboardingService when HR completes a per-asset IT clearance checklist
+    // item, where the assignment (not just the asset) is already known. Mirrors the same side
+    // effects as returnAsset(...): assignment closed, asset flipped back to AVAILABLE.
+    @Transactional
+    public void markAssignmentReturned(UUID assignmentId, UUID actorEmployeeId) {
+        AssetAssignment assignment = assetAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new RuntimeException("Asset assignment not found"));
+        if (!assignment.isActive()) {
+            return; // already returned - nothing to do
+        }
+        assignment.setReturnDate(LocalDate.now());
+        assignment.setReturnedById(actorEmployeeId);
+        assignment.setConditionAtReturn(assignment.getConditionAtAssignment());
+        assignment.setActive(false);
+        assetAssignmentRepository.save(assignment);
+
+        Asset asset = assignment.getAsset();
+        asset.setStatus(Asset.Status.AVAILABLE);
+        assetRepository.save(asset);
+    }
+
     @Transactional
     public void deleteAsset(UUID id) {
         Asset asset = assetRepository.findById(id)

@@ -156,35 +156,44 @@ public class OnboardingService {
     public ProfileCompletionResponse getProfileCompletion(UUID employeeId) {
         Employee e = getEmployeeOrThrow(employeeId);
         List<String> missing = new ArrayList<>();
+        List<ProfileCompletionResponse.SectionStatus> sections = new ArrayList<>();
         int sectionsDone = 0;
         final int totalSections = 8;
 
         boolean personalDone = e.getDateOfBirth() != null && e.getGender() != null && e.getCurrentAddress() != null
                 && e.getPersonalEmail() != null && e.getPersonalMobile() != null && e.getProfilePictureUrl() != null;
         if (personalDone) sectionsDone++; else missing.add("Personal Information");
+        sections.add(new ProfileCompletionResponse.SectionStatus("personal", "Personal Information", personalDone));
 
         boolean educationDone = educationRepository.countByEmployeeId(employeeId) > 0;
         if (educationDone) sectionsDone++; else missing.add("Education");
+        sections.add(new ProfileCompletionResponse.SectionStatus("education", "Education", educationDone));
 
         boolean employmentDone = employmentHistoryRepository.countByEmployeeId(employeeId) > 0;
         if (employmentDone) sectionsDone++; else missing.add("Employment History");
+        sections.add(new ProfileCompletionResponse.SectionStatus("employment", "Employment History", employmentDone));
 
         boolean skillsDone = skillRepository.countByEmployeeId(employeeId) > 0;
         if (skillsDone) sectionsDone++; else missing.add("Skills");
+        sections.add(new ProfileCompletionResponse.SectionStatus("skills", "Skills", skillsDone));
 
         boolean documentsDone = !documentRepository.findByEmployeeId(employeeId).isEmpty();
         if (documentsDone) sectionsDone++; else missing.add("Documents");
+        sections.add(new ProfileCompletionResponse.SectionStatus("documents", "Documents", documentsDone));
 
         boolean bankDone = e.getBankName() != null && e.getBankAccountNumber() != null && e.getIfscCode() != null;
         if (bankDone) sectionsDone++; else missing.add("Bank Details");
+        sections.add(new ProfileCompletionResponse.SectionStatus("bank", "Bank Details", bankDone));
 
         boolean taxDone = e.getPanNumber() != null && e.getAadharNumber() != null && e.getUanNumber() != null;
         if (taxDone) sectionsDone++; else missing.add("Tax Information");
+        sections.add(new ProfileCompletionResponse.SectionStatus("tax", "Tax Information", taxDone));
 
         boolean nomineeDone = e.getNomineeName() != null && e.getNomineeRelation() != null;
         if (nomineeDone) sectionsDone++; else missing.add("Nominee");
+        sections.add(new ProfileCompletionResponse.SectionStatus("nominee", "Nominee", nomineeDone));
 
         int percent = (int) Math.round((sectionsDone * 100.0) / totalSections);
-        return new ProfileCompletionResponse(percent, missing);
+        return new ProfileCompletionResponse(percent, missing, sections);
     }
 }

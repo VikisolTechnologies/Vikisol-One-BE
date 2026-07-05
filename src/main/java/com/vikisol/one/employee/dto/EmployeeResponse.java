@@ -70,6 +70,9 @@ public record EmployeeResponse(
         String maritalStatus,
         String nationality,
         String bloodGroup,
-        String languagesKnown
+        String languagesKnown,
+        Employee.LifecycleStatus lifecycleStatus,
+        String costCenter,
+        String businessUnit
 ) {
 }

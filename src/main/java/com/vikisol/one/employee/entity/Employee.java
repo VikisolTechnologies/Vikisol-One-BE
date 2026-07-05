@@ -141,6 +141,20 @@ public class Employee extends BaseEntity {
     @Builder.Default
     private boolean onboardingInductionCompleted = false;
 
+    // Broader end-to-end lifecycle concept (candidate -> ... -> alumni), separate from and
+    // additive to `employmentStatus` (which only tracks suspend/activate-style states already in
+    // use elsewhere). Intentionally nullable with no default: this table already has rows, and a
+    // NOT-NULL column with no default would fail the `ddl-auto: update` migration on existing data.
+    @Enumerated(EnumType.STRING)
+    private LifecycleStatus lifecycleStatus;
+
+    // Organization-transfer-tracked fields (see EmployeeTransferService) - nullable String with no
+    // default, since this table already has rows and a NOT-NULL column with no default would fail
+    // the `ddl-auto: update` migration. `city` already exists and doubles as "location" for the
+    // LOCATION transfer type, so it isn't duplicated here.
+    private String costCenter;
+    private String businessUnit;
+
     public enum Gender {
         MALE, FEMALE, OTHER
     }
@@ -151,5 +165,10 @@ public class Employee extends BaseEntity {
 
     public enum EmploymentStatus {
         ACTIVE, ON_NOTICE, TERMINATED, RESIGNED, ABSCONDED
+    }
+
+    public enum LifecycleStatus {
+        CANDIDATE, OFFER_RELEASED, OFFER_ACCEPTED, PRE_BOARDING, JOINING_TODAY, ACTIVE,
+        PROBATION, CONFIRMED, NOTICE_PERIOD, OFFBOARDING, EXITED, ALUMNI
     }
 }

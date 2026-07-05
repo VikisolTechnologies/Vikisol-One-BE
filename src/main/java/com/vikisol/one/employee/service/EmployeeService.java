@@ -28,6 +28,9 @@ import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.auth.entity.User;
 import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.leave.service.LeaveService;
+import com.vikisol.one.offboarding.dto.InitiateOffboardingRequest;
+import com.vikisol.one.offboarding.entity.OffboardingCase;
+import com.vikisol.one.offboarding.service.OffboardingService;
 import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.security.service.UserPrincipal;
@@ -37,6 +40,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
@@ -48,6 +52,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
@@ -64,6 +69,7 @@ public class EmployeeService {
     private final FileStorageService fileStorageService;
     private final DocumentService documentService;
     private final DocumentGenerationService documentGenerationService;
+    private final OffboardingService offboardingService;
 
     @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -189,6 +195,12 @@ public class EmployeeService {
                 .bloodGroup(request.bloodGroup())
                 .languagesKnown(request.languagesKnown())
                 .isActive(true)
+                // Candidate-to-employee conversion (RecruitmentService.approveSelection) and direct
+                // HR-created employees both land here. If the join date is still in the future there's
+                // a pre-boarding gap to track; otherwise they're starting immediately, so ACTIVE.
+                .lifecycleStatus(request.dateOfJoining() != null && request.dateOfJoining().isAfter(java.time.LocalDate.now())
+                        ? Employee.LifecycleStatus.PRE_BOARDING
+                        : Employee.LifecycleStatus.ACTIVE)
                 .build();
 
         employee = employeeRepository.save(employee);
@@ -301,7 +313,8 @@ public class EmployeeService {
                 r.isActive(), r.createdAt(), r.accountRole(),
                 r.onboardingDocumentsVerified(), r.onboardingAssetsAssigned(),
                 r.onboardingBankDetailsCollected(), r.onboardingInductionCompleted(),
-                null, null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null,
+                r.lifecycleStatus(), r.costCenter(), r.businessUnit()
         );
     }
 
@@ -515,6 +528,7 @@ public class EmployeeService {
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
         employee.setEmploymentStatus(Employee.EmploymentStatus.ON_NOTICE);
+        employee.setLifecycleStatus(Employee.LifecycleStatus.NOTICE_PERIOD);
         employee = employeeRepository.save(employee);
 
         emailService.sendResignationAcknowledgementEmail(
@@ -522,6 +536,17 @@ public class EmployeeService {
                 employee.getFirstName() + " " + employee.getLastName(),
                 request.lastWorkingDate()
         );
+
+        // Also kicks off the full offboarding workflow (checklist + stage pipeline) - this old
+        // endpoint's contract (EmployeeResponse) is left untouched so the existing frontend call
+        // from EmployeeDirectory.jsx keeps working exactly as before.
+        try {
+            offboardingService.initiateOffboarding(id,
+                    new InitiateOffboardingRequest(OffboardingCase.Type.RESIGNATION, request.lastWorkingDate(), request.reason(), false),
+                    null);
+        } catch (Exception e) {
+            log.warn("Could not initiate offboarding case for employee {}: {}", employee.getEmployeeId(), e.getMessage());
+        }
 
         return toResponse(employee);
     }
@@ -555,7 +580,31 @@ public class EmployeeService {
         if (request.assetsAssigned() != null) employee.setOnboardingAssetsAssigned(request.assetsAssigned());
         if (request.bankDetailsCollected() != null) employee.setOnboardingBankDetailsCollected(request.bankDetailsCollected());
         if (request.inductionCompleted() != null) employee.setOnboardingInductionCompleted(request.inductionCompleted());
+        // Induction completion is the signal that onboarding is done - advance the lifecycle from
+        // wherever it was pre-join (PRE_BOARDING/JOINING_TODAY) to ACTIVE. Only move forward, never
+        // backward, and never touch it if HR has already advanced it further (e.g. PROBATION+).
+        if (Boolean.TRUE.equals(request.inductionCompleted())
+                && (employee.getLifecycleStatus() == Employee.LifecycleStatus.PRE_BOARDING
+                    || employee.getLifecycleStatus() == Employee.LifecycleStatus.JOINING_TODAY)) {
+            employee.setLifecycleStatus(Employee.LifecycleStatus.ACTIVE);
+        }
         employee = employeeRepository.save(employee);
+        return toResponse(employee);
+    }
+
+    private static final java.util.Set<RoleEnum> LIFECYCLE_OVERRIDE_ROLES =
+            java.util.Set.of(RoleEnum.CEO, RoleEnum.HR_MANAGER, RoleEnum.ADMIN);
+
+    /** Manual HR override for lifecycle status transitions that nothing else automates (e.g. PROBATION -> CONFIRMED). */
+    @Transactional
+    public EmployeeResponse updateLifecycleStatus(UUID id, Employee.LifecycleStatus newStatus) {
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        Employee.LifecycleStatus oldStatus = employee.getLifecycleStatus();
+        employee.setLifecycleStatus(newStatus);
+        employee = employeeRepository.save(employee);
+        auditService.record("Lifecycle Status Changed", employee.getEmployeeId(),
+                employee.getFirstName() + " " + employee.getLastName() + ": " + oldStatus + " -> " + newStatus);
         return toResponse(employee);
     }
 
@@ -646,7 +695,10 @@ public class EmployeeService {
                 employee.getMaritalStatus(),
                 employee.getNationality(),
                 employee.getBloodGroup(),
-                employee.getLanguagesKnown()
+                employee.getLanguagesKnown(),
+                employee.getLifecycleStatus(),
+                employee.getCostCenter(),
+                employee.getBusinessUnit()
         );
     }
 
