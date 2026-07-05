@@ -45,6 +45,10 @@ app:
   logo-url: ${LOGO_URL:https://res.cloudinary.com/drqgvncx1/image/upload/v1781621022/snipped_fccgpm.png}
   frontend-url: ${FRONTEND_URL:https://hrlms.vikisol.in}
 
+  # No fallback on purpose, same reasoning as jwt.secret below - integration secrets (Azure AD
+  # client secret, etc.) encrypted with a well-known dev key would be effectively unencrypted.
+  integration-encryption-key: ${INTEGRATION_ENCRYPTION_KEY}
+
   jwt:
     # No fallback default on purpose - a hardcoded secret baked into source control (even as a
     # "safety net") is a real vulnerability: anyone with repo access could forge valid tokens for

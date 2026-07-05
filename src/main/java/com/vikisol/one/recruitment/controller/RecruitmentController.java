@@ -84,17 +84,30 @@ public class RecruitmentController {
     @PostMapping("/candidates")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> createCandidate(
-            @Valid @RequestBody CandidateRequest request) {
+            @Valid @RequestBody CandidateRequest request, @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>(true, "Candidate created",
-                recruitmentService.createCandidate(request)));
+                recruitmentService.createCandidate(request, principal)));
     }
 
     @PutMapping("/candidates/{id}")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<CandidateResponse>> updateCandidate(
-            @PathVariable UUID id, @Valid @RequestBody CandidateRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody CandidateRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Candidate updated",
-                recruitmentService.updateCandidate(id, request)));
+                recruitmentService.updateCandidate(id, request, principal)));
+    }
+
+    // HR adjusts a recruiter's pending offer proposal (CTC/bonus/variable pay/joining date/
+    // designation/department/reporting manager) before approving it - "the approval popup should
+    // not be read-only".
+    @PutMapping("/candidates/{id}/offer-proposal")
+    @PreAuthorize("hasAnyRole('HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<CandidateResponse>> updateOfferProposal(
+            @PathVariable UUID id, @RequestBody SelectCandidateRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Offer proposal updated",
+                recruitmentService.updateOfferProposal(id, request, principal)));
     }
 
     @DeleteMapping("/candidates/{id}")
@@ -149,17 +162,55 @@ public class RecruitmentController {
     @PostMapping("/interviews")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<InterviewResponse>> scheduleInterview(
-            @Valid @RequestBody InterviewRequest request) {
+            @Valid @RequestBody InterviewRequest request, @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>(true, "Interview scheduled",
-                recruitmentService.scheduleInterview(request)));
+                recruitmentService.scheduleInterview(request, principal)));
+    }
+
+    @PutMapping("/interviews/{id}/reschedule")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<InterviewResponse>> rescheduleInterview(
+            @PathVariable UUID id, @Valid @RequestBody RescheduleInterviewRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Interview rescheduled",
+                recruitmentService.rescheduleInterview(id, request, principal)));
+    }
+
+    // Full interview edit - stays editable (title/type/round/interviewer(s)/HR manager/duration/
+    // timezone/platform/meeting link/location/notes/agenda/prep notes) until COMPLETED.
+    @PutMapping("/interviews/{id}")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<InterviewResponse>> editInterview(
+            @PathVariable UUID id, @Valid @RequestBody InterviewRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Interview updated",
+                recruitmentService.editInterview(id, request, principal)));
+    }
+
+    @PutMapping("/candidates/{id}/interviews/reorder")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<InterviewResponse>>> reorderInterviews(
+            @PathVariable UUID id, @RequestBody List<UUID> orderedInterviewIds) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Interview rounds reordered",
+                recruitmentService.reorderInterviews(id, orderedInterviewIds)));
+    }
+
+    @PutMapping("/interviews/{id}/cancel")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<InterviewResponse>> cancelInterview(
+            @PathVariable UUID id, @RequestBody CancelInterviewRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Interview cancelled",
+                recruitmentService.cancelInterview(id, request, principal)));
     }
 
     @PutMapping("/interviews/{id}/feedback")
     @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<InterviewResponse>> submitFeedback(
-            @PathVariable UUID id, @Valid @RequestBody InterviewFeedbackRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody InterviewFeedbackRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Feedback submitted",
-                recruitmentService.submitFeedback(id, request)));
+                recruitmentService.submitFeedback(id, request, principal)));
     }
 
     @GetMapping("/interviews/upcoming")
@@ -168,5 +219,47 @@ public class RecruitmentController {
             @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Upcoming interviews retrieved",
                 recruitmentService.getUpcomingInterviews(principal.getId())));
+    }
+
+    @GetMapping("/candidates/{id}/interviews")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<List<InterviewResponse>>> getCandidateInterviews(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate interviews retrieved",
+                recruitmentService.getCandidateInterviews(id)));
+    }
+
+    @GetMapping("/candidates/{id}/timeline")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<List<com.vikisol.one.recruitment.dto.CandidateTimelineEntry>>> getCandidateTimeline(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate timeline retrieved",
+                recruitmentService.getCandidateTimeline(id)));
+    }
+
+    // ─── Candidate field edits (Expected/Current CTC, Notice Period, Locations) ───
+
+    @PutMapping("/candidates/{id}/fields")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<CandidateResponse>> updateCandidateFields(
+            @PathVariable UUID id, @RequestBody com.vikisol.one.recruitment.dto.CandidateFieldsUpdateRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate fields updated",
+                recruitmentService.updateCandidateFields(id, request, principal)));
+    }
+
+    @GetMapping("/candidates/{id}/field-history")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<List<com.vikisol.one.recruitment.dto.CandidateFieldChangeResponse>>> getCandidateFieldHistory(@PathVariable UUID id) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate field history retrieved",
+                recruitmentService.getCandidateFieldHistory(id)));
+    }
+
+    // ─── Recruiter dashboard ───
+
+    @GetMapping("/dashboard")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<com.vikisol.one.recruitment.dto.RecruiterDashboardStats>> getRecruiterDashboard(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Recruiter dashboard retrieved",
+                recruitmentService.getRecruiterDashboardStats(principal)));
     }
 }

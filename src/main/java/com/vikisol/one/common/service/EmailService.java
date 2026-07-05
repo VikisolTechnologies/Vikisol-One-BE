@@ -61,14 +61,24 @@ public class EmailService {
     }
 
     private void send(String to, String subject, String htmlBody, List<Attachment> attachments) throws Exception {
+        send(List.of(to), List.of(), subject, htmlBody, attachments);
+    }
+
+    // To/CC-aware variant - used by the interview-invite flow where the candidate + primary
+    // interviewer are the real audience (To) and the recruiter/HR/additional interviewers just
+    // need visibility (CC), rather than every recipient getting an identical "To" email.
+    private void send(List<String> to, List<String> cc, String subject, String htmlBody, List<Attachment> attachments) throws Exception {
         if (resendApiKey == null || resendApiKey.isBlank()) {
             throw new IllegalStateException("RESEND_API_KEY is not configured");
         }
         Map<String, Object> payload = new java.util.HashMap<>(Map.of(
                 "from", fromEmail,
-                "to", List.of(to),
+                "to", to,
                 "subject", subject,
                 "html", htmlBody));
+        if (cc != null && !cc.isEmpty()) {
+            payload.put("cc", cc);
+        }
         if (bccEmail != null && !bccEmail.isBlank()) {
             payload.put("bcc", List.of(bccEmail));
         }
@@ -89,6 +99,19 @@ public class EmailService {
         HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 300) {
             throw new RuntimeException("Resend API returned " + response.statusCode() + ": " + response.body());
+        }
+    }
+
+    // Public, provider-agnostic entry point used by NoopMailProvider (the fallback used when no
+    // real MailProvider, e.g. Microsoft 365, is configured) - lets the integration layer send
+    // through this app's existing Resend account without duplicating the request-building logic.
+    @Async
+    public void sendRaw(List<String> to, List<String> cc, String subject, String htmlBody, List<Attachment> attachments) {
+        try {
+            send(to, cc, subject, htmlBody, attachments);
+            log.info("Email sent (raw) to {} cc {}: {}", to, cc, subject);
+        } catch (Exception e) {
+            log.warn("Failed to send raw email to {}: {}", to, e.getMessage());
         }
     }
 
@@ -182,6 +205,81 @@ public class EmailService {
         String subject = "Ticket " + ticketNumber + " - " + status;
         String body = String.format("Ticket %s: %s\nStatus: %s\n\nPlease log in for details.\n\nRegards,\nVikisol One", ticketNumber, title, status);
         sendEmail(email, subject, body);
+    }
+
+    // Builds a minimal RFC 5545 .ics calendar invite so the interview shows up on the recipient's
+    // calendar app regardless of email client - Resend has no native calendar-invite feature, so
+    // this is attached as a plain file the same way the offer-letter PDF is.
+    private byte[] buildIcs(String uid, String summary, String description, String location,
+                             java.time.LocalDateTime start, int durationMinutes, String organizerEmail) {
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss");
+        java.time.LocalDateTime end = start.plusMinutes(durationMinutes);
+        String escapedDescription = description == null ? "" : description.replace("\n", "\\n").replace(",", "\\,");
+        String ics = "BEGIN:VCALENDAR\r\n"
+                + "VERSION:2.0\r\n"
+                + "PRODID:-//Vikisol One//Interview Scheduling//EN\r\n"
+                + "METHOD:REQUEST\r\n"
+                + "BEGIN:VEVENT\r\n"
+                + "UID:" + uid + "@vikisol.in\r\n"
+                + "DTSTAMP:" + java.time.LocalDateTime.now().format(fmt) + "\r\n"
+                + "DTSTART:" + start.format(fmt) + "\r\n"
+                + "DTEND:" + end.format(fmt) + "\r\n"
+                + "SUMMARY:" + summary + "\r\n"
+                + "DESCRIPTION:" + escapedDescription + "\r\n"
+                + "LOCATION:" + (location == null ? "" : location.replace(",", "\\,")) + "\r\n"
+                + "ORGANIZER:mailto:" + organizerEmail + "\r\n"
+                + "STATUS:CONFIRMED\r\n"
+                + "END:VEVENT\r\n"
+                + "END:VCALENDAR\r\n";
+        return ics.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** Pure content (subject/html/ics) for an interview invite - no sending, so any MailProvider (Resend fallback or Microsoft 365) can dispatch it identically. */
+    public record InterviewEmailContent(String subject, String html, byte[] ics) {}
+
+    /**
+     * Builds the interview invitation content - job description/tech stack pulled in from the job
+     * posting, plus a .ics calendar payload the caller can attach. Signed by the recruiter who
+     * scheduled it, not a generic team signature, since the candidate should know who to reach
+     * out to. Building this separately from sending lets the same content go out either via the
+     * default Resend account or, once configured, via the tenant's actual Microsoft 365 mailbox -
+     * see IntegrationService/MailProvider.
+     */
+    public InterviewEmailContent buildInterviewInviteEmail(
+            String candidateName, String jobTitle, String jobDescription, String techStack,
+            String interviewTitle, String interviewType, java.time.LocalDate date, java.time.LocalTime time,
+            int durationMinutes, String timezone, String platform, String meetingLink, String location,
+            String agenda, String recruiterName, String recruiterEmail, String interviewId) {
+        String subject = interviewTitle != null && !interviewTitle.isBlank()
+                ? interviewTitle
+                : jobTitle + " - " + interviewType + " Interview";
+
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Interview Scheduled</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Dear " + candidateName + ",</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Your interview for the <b>" + jobTitle + "</b> position has been scheduled. Details below:</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
+                + rowHtml("Interview", subject)
+                + rowHtml("Type", interviewType)
+                + rowHtml("Date", date.toString())
+                + rowHtml("Time", time.toString() + (timezone != null ? " (" + timezone + ")" : ""))
+                + rowHtml("Duration", durationMinutes + " minutes")
+                + rowHtml("Platform", platform)
+                + (meetingLink != null && !meetingLink.isBlank() ? rowHtml("Meeting Link", "<a href=\"" + meetingLink + "\">" + meetingLink + "</a>") : "")
+                + (location != null && !location.isBlank() ? rowHtml("Location", location) : "")
+                + "</table>"
+                + (agenda != null && !agenda.isBlank() ? "<p style=\"margin:0 0 8px;font-weight:600;\">Agenda</p><p style=\"margin:0 0 20px;color:#444;white-space:pre-wrap;\">" + agenda + "</p>" : "")
+                + (jobDescription != null && !jobDescription.isBlank() ? "<p style=\"margin:0 0 8px;font-weight:600;\">Role Overview</p><p style=\"margin:0 0 20px;color:#444;white-space:pre-wrap;\">" + jobDescription + "</p>" : "")
+                + (techStack != null && !techStack.isBlank() ? "<p style=\"margin:0 0 8px;font-weight:600;\">Tech Stack</p><p style=\"margin:0 0 20px;color:#444;\">" + techStack + "</p>" : "")
+                + "<p style=\"margin:20px 0 0;color:#444;\">Please be online/present 5 minutes before the scheduled time. A calendar invite is attached to this email.</p>"
+                + signatureBlock("Best regards", recruiterName != null && !recruiterName.isBlank() ? recruiterName : "Talent Acquisition Team");
+
+        String html = brandedTemplate("Interview scheduled - " + jobTitle, body);
+        byte[] ics = buildIcs(interviewId, subject, agenda, meetingLink != null ? meetingLink : location,
+                java.time.LocalDateTime.of(date, time), durationMinutes > 0 ? durationMinutes : 30,
+                recruiterEmail != null ? recruiterEmail : supportEmail);
+
+        return new InterviewEmailContent(subject, html, ics);
     }
 
     public void sendOfferLetterEmail(String email, String candidateName, String employeeId, String designation,

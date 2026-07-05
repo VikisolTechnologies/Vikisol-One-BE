@@ -13,9 +13,17 @@ public interface InterviewRepository extends JpaRepository<Interview, UUID> {
 
     List<Interview> findByCandidateId(UUID candidateId);
 
+    List<Interview> findByCandidateIdOrderByScheduledDateAscScheduledTimeAsc(UUID candidateId);
+
     List<Interview> findByInterviewerId(UUID interviewerId);
 
     List<Interview> findByScheduledDate(LocalDate scheduledDate);
 
     List<Interview> findByInterviewerIdAndScheduledDateGreaterThanEqual(UUID interviewerId, LocalDate date);
+
+    List<Interview> findByRecruiterIdAndScheduledDateGreaterThanEqualAndStatus(UUID recruiterId, LocalDate date, Interview.Status status);
+
+    long countByRecruiterIdAndStatus(UUID recruiterId, Interview.Status status);
+
+    List<Interview> findByRecruiterIdAndStatus(UUID recruiterId, Interview.Status status);
 }

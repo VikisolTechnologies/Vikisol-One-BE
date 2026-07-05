@@ -14,11 +14,27 @@ public class CandidateResponse {
     private String lastName;
     private String email;
     private String phone;
+    private String alternateMobile;
+    private String currentAddress;
+    private String city;
+    private String state;
+    private String country;
+    private String linkedinUrl;
+    private String githubUrl;
+    private String portfolioUrl;
+
     private String currentCompany;
     private String currentDesignation;
+    private Candidate.EmploymentType employmentType;
     private double experienceYears;
+    private double relevantExperienceYears;
+    private String certifications;
+
     private BigDecimal expectedSalary;
+    private BigDecimal currentCtc;
     private int noticePeriod;
+    private String currentLocation;
+    private String preferredLocation;
     private String resumeUrl;
     private String skills;
     private Candidate.Source source;
@@ -33,8 +49,14 @@ public class CandidateResponse {
     private String offeredDepartmentName;
     private java.time.LocalDate offeredDateOfJoining;
     private UUID offeredReportingManagerId;
+    private BigDecimal offeredJoiningBonus;
+    private BigDecimal offeredVariablePay;
     private String convertedEmployeeId;
     private String managerRemarks;
+    private UUID assignedRecruiterId;
+    private UUID hiringManagerId;
+    private String businessUnit;
+    private Candidate.Priority priority;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

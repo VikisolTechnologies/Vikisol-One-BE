@@ -1,6 +1,7 @@
 package com.vikisol.one.recruitment.service;
 
 import com.vikisol.one.audit.service.AuditService;
+import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.common.service.FileModule;
 import com.vikisol.one.common.service.FileStorageService;
@@ -20,8 +21,10 @@ import com.vikisol.one.notification.service.NotificationService;
 import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.recruitment.dto.*;
 import com.vikisol.one.recruitment.entity.Candidate;
+import com.vikisol.one.recruitment.entity.CandidateFieldChange;
 import com.vikisol.one.recruitment.entity.Interview;
 import com.vikisol.one.recruitment.entity.JobPosting;
+import com.vikisol.one.recruitment.repository.CandidateFieldChangeRepository;
 import com.vikisol.one.recruitment.repository.CandidateRepository;
 import com.vikisol.one.recruitment.repository.InterviewRepository;
 import com.vikisol.one.recruitment.repository.JobPostingRepository;
@@ -37,8 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -50,6 +57,7 @@ public class RecruitmentService {
     private final JobPostingRepository jobPostingRepository;
     private final CandidateRepository candidateRepository;
     private final InterviewRepository interviewRepository;
+    private final CandidateFieldChangeRepository candidateFieldChangeRepository;
     private final EntityManager entityManager;
     private final EmployeeService employeeService;
     private final EmployeeRepository employeeRepository;
@@ -60,6 +68,8 @@ public class RecruitmentService {
     private final DocumentService documentService;
     private final AuditService auditService;
     private final NotificationService notificationService;
+    private final UserRepository userRepository;
+    private final com.vikisol.one.integration.service.IntegrationService integrationService;
 
     // ─── Job Postings ───
 
@@ -125,21 +135,40 @@ public class RecruitmentService {
 
     // ─── Candidates ───
 
-    public CandidateResponse createCandidate(CandidateRequest request) {
+    public CandidateResponse createCandidate(CandidateRequest request, UserPrincipal principal) {
+        Employee creator = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
         Candidate candidate = Candidate.builder()
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .email(request.getEmail())
                 .phone(request.getPhone())
+                .alternateMobile(request.getAlternateMobile())
+                .currentAddress(request.getCurrentAddress())
+                .city(request.getCity())
+                .state(request.getState())
+                .country(request.getCountry())
+                .linkedinUrl(request.getLinkedinUrl())
+                .githubUrl(request.getGithubUrl())
+                .portfolioUrl(request.getPortfolioUrl())
                 .currentCompany(request.getCurrentCompany())
                 .currentDesignation(request.getCurrentDesignation())
+                .employmentType(request.getEmploymentType())
                 .experienceYears(request.getExperienceYears())
+                .relevantExperienceYears(request.getRelevantExperienceYears())
+                .certifications(request.getCertifications())
                 .expectedSalary(request.getExpectedSalary())
+                .currentCtc(request.getCurrentCtc())
                 .noticePeriod(request.getNoticePeriod())
+                .currentLocation(request.getCurrentLocation())
+                .preferredLocation(request.getPreferredLocation())
                 .resumeUrl(request.getResumeUrl())
                 .skills(request.getSkills())
                 .source(request.getSource() != null ? request.getSource() : Candidate.Source.DIRECT)
                 .notes(request.getNotes())
+                .assignedRecruiterId(request.getAssignedRecruiterId() != null ? request.getAssignedRecruiterId() : (creator != null ? creator.getId() : null))
+                .hiringManagerId(request.getHiringManagerId())
+                .businessUnit(request.getBusinessUnit())
+                .priority(request.getPriority() != null ? request.getPriority() : Candidate.Priority.MEDIUM)
                 .build();
         if (request.getJobPostingId() != null) {
             candidate.setJobPosting(entityManager.getReference(JobPosting.class, request.getJobPostingId()));
@@ -147,26 +176,141 @@ public class RecruitmentService {
         return mapCandidate(candidateRepository.save(candidate));
     }
 
-    public CandidateResponse updateCandidate(UUID id, CandidateRequest request) {
+    // Full-profile edit - covers every field an ATS should let a recruiter/HR update (personal,
+    // professional, recruitment-ownership). Every field that actually changes gets a
+    // CandidateFieldChange row (same audit mechanism as updateCandidateFields), so nothing here
+    // silently overwrites recruitment history - satisfies "every editable field maintains history".
+    public CandidateResponse updateCandidate(UUID id, CandidateRequest request, UserPrincipal principal) {
         Candidate candidate = candidateRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        Employee modifier = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+        String modifierName = modifier != null ? modifier.getFirstName() + " " + modifier.getLastName() : "System";
+
+        recordFieldChange(candidate, "Full Name", candidate.getFirstName() + " " + candidate.getLastName(), request.getFirstName() + " " + request.getLastName(), modifier, modifierName);
+        recordFieldChange(candidate, "Personal Email", candidate.getEmail(), request.getEmail(), modifier, modifierName);
+        recordFieldChange(candidate, "Personal Mobile", candidate.getPhone(), request.getPhone(), modifier, modifierName);
+        recordFieldChange(candidate, "Current Company", candidate.getCurrentCompany(), request.getCurrentCompany(), modifier, modifierName);
+        recordFieldChange(candidate, "Current Designation", candidate.getCurrentDesignation(), request.getCurrentDesignation(), modifier, modifierName);
+        recordFieldChange(candidate, "Assigned Recruiter", candidate.getAssignedRecruiterId(), request.getAssignedRecruiterId(), modifier, modifierName);
+        recordFieldChange(candidate, "Hiring Manager", candidate.getHiringManagerId(), request.getHiringManagerId(), modifier, modifierName);
+        recordFieldChange(candidate, "Priority", candidate.getPriority(), request.getPriority(), modifier, modifierName);
+        recordFieldChange(candidate, "Status/Remarks", candidate.getNotes(), request.getNotes(), modifier, modifierName);
+
         candidate.setFirstName(request.getFirstName());
         candidate.setLastName(request.getLastName());
         candidate.setEmail(request.getEmail());
         candidate.setPhone(request.getPhone());
+        candidate.setAlternateMobile(request.getAlternateMobile());
+        candidate.setCurrentAddress(request.getCurrentAddress());
+        candidate.setCity(request.getCity());
+        candidate.setState(request.getState());
+        candidate.setCountry(request.getCountry());
+        candidate.setLinkedinUrl(request.getLinkedinUrl());
+        candidate.setGithubUrl(request.getGithubUrl());
+        candidate.setPortfolioUrl(request.getPortfolioUrl());
         candidate.setCurrentCompany(request.getCurrentCompany());
         candidate.setCurrentDesignation(request.getCurrentDesignation());
+        candidate.setEmploymentType(request.getEmploymentType());
         candidate.setExperienceYears(request.getExperienceYears());
+        candidate.setRelevantExperienceYears(request.getRelevantExperienceYears());
+        candidate.setCertifications(request.getCertifications());
         candidate.setExpectedSalary(request.getExpectedSalary());
+        candidate.setCurrentCtc(request.getCurrentCtc());
         candidate.setNoticePeriod(request.getNoticePeriod());
+        candidate.setCurrentLocation(request.getCurrentLocation());
+        candidate.setPreferredLocation(request.getPreferredLocation());
         candidate.setResumeUrl(request.getResumeUrl());
         candidate.setSkills(request.getSkills());
         if (request.getSource() != null) candidate.setSource(request.getSource());
         candidate.setNotes(request.getNotes());
+        if (request.getAssignedRecruiterId() != null) candidate.setAssignedRecruiterId(request.getAssignedRecruiterId());
+        candidate.setHiringManagerId(request.getHiringManagerId());
+        candidate.setBusinessUnit(request.getBusinessUnit());
+        if (request.getPriority() != null) candidate.setPriority(request.getPriority());
         if (request.getJobPostingId() != null) {
             candidate.setJobPosting(entityManager.getReference(JobPosting.class, request.getJobPostingId()));
         }
         return mapCandidate(candidateRepository.save(candidate));
+    }
+
+    /**
+     * HR reviewing a recruiter's offer proposal can adjust it (CTC, joining bonus, variable pay,
+     * joining date, designation, department, reporting manager) before approving - the approval
+     * popup should not be read-only. Does not change status or notify anyone by itself; the HR
+     * user still calls approve-selection (or request-revision) afterward.
+     */
+    public CandidateResponse updateOfferProposal(UUID id, SelectCandidateRequest request, UserPrincipal principal) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        if (candidate.getStatus() != Candidate.Status.PENDING_APPROVAL) {
+            throw new IllegalStateException("This candidate has no pending offer proposal to adjust");
+        }
+        Employee modifier = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+        String modifierName = modifier != null ? modifier.getFirstName() + " " + modifier.getLastName() : "System";
+
+        recordFieldChange(candidate, "Proposed CTC", candidate.getOfferedCtc(), request.offeredCtc(), modifier, modifierName);
+        recordFieldChange(candidate, "Joining Bonus", candidate.getOfferedJoiningBonus(), request.joiningBonus(), modifier, modifierName);
+        recordFieldChange(candidate, "Variable Pay", candidate.getOfferedVariablePay(), request.variablePay(), modifier, modifierName);
+        recordFieldChange(candidate, "Joining Date", candidate.getOfferedDateOfJoining(), request.dateOfJoining(), modifier, modifierName);
+
+        if (request.offeredCtc() != null) candidate.setOfferedCtc(request.offeredCtc());
+        if (request.joiningBonus() != null) candidate.setOfferedJoiningBonus(request.joiningBonus());
+        if (request.variablePay() != null) candidate.setOfferedVariablePay(request.variablePay());
+        if (request.dateOfJoining() != null) candidate.setOfferedDateOfJoining(request.dateOfJoining());
+        if (request.reportingManagerId() != null) candidate.setOfferedReportingManagerId(request.reportingManagerId());
+        if (request.designationId() != null) candidate.setOfferedDesignation(entityManager.getReference(Designation.class, request.designationId()));
+        if (request.departmentId() != null) candidate.setOfferedDepartment(entityManager.getReference(Department.class, request.departmentId()));
+
+        return mapCandidate(candidateRepository.save(candidate));
+    }
+
+    /**
+     * Dedicated endpoint for the 5 fields that need field-level audit history (Expected/Current
+     * CTC, Notice Period, Current/Preferred Location) - only touches a field if the request
+     * actually supplies a new value, and records a CandidateFieldChange row per field that
+     * actually changed (skips no-op writes of the same value).
+     */
+    public CandidateResponse updateCandidateFields(UUID id, CandidateFieldsUpdateRequest request, UserPrincipal principal) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        Employee modifier = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+        String modifierName = modifier != null ? modifier.getFirstName() + " " + modifier.getLastName() : "System";
+
+        recordFieldChange(candidate, "Expected CTC", candidate.getExpectedSalary(), request.expectedSalary(), modifier, modifierName);
+        recordFieldChange(candidate, "Current CTC", candidate.getCurrentCtc(), request.currentCtc(), modifier, modifierName);
+        recordFieldChange(candidate, "Notice Period", candidate.getNoticePeriod(), request.noticePeriod(), modifier, modifierName);
+        recordFieldChange(candidate, "Current Location", candidate.getCurrentLocation(), request.currentLocation(), modifier, modifierName);
+        recordFieldChange(candidate, "Preferred Location", candidate.getPreferredLocation(), request.preferredLocation(), modifier, modifierName);
+
+        if (request.expectedSalary() != null) candidate.setExpectedSalary(request.expectedSalary());
+        if (request.currentCtc() != null) candidate.setCurrentCtc(request.currentCtc());
+        if (request.noticePeriod() != null) candidate.setNoticePeriod(request.noticePeriod());
+        if (request.currentLocation() != null) candidate.setCurrentLocation(request.currentLocation());
+        if (request.preferredLocation() != null) candidate.setPreferredLocation(request.preferredLocation());
+
+        return mapCandidate(candidateRepository.save(candidate));
+    }
+
+    private void recordFieldChange(Candidate candidate, String fieldName, Object oldValue, Object newValue, Employee modifier, String modifierName) {
+        if (newValue == null || Objects.equals(String.valueOf(oldValue), String.valueOf(newValue))) return;
+        auditService.record(fieldName + " Changed", candidate.getFirstName() + " " + candidate.getLastName(),
+                oldValue + " -> " + newValue);
+        candidateFieldChangeRepository.save(CandidateFieldChange.builder()
+                .candidate(candidate)
+                .fieldName(fieldName)
+                .previousValue(String.valueOf(oldValue))
+                .newValue(String.valueOf(newValue))
+                .modifiedById(modifier != null ? modifier.getId() : null)
+                .modifiedByName(modifierName)
+                .build());
+    }
+
+    @Transactional(readOnly = true)
+    public List<CandidateFieldChangeResponse> getCandidateFieldHistory(UUID candidateId) {
+        return candidateFieldChangeRepository.findByCandidateIdOrderByCreatedAtDesc(candidateId).stream()
+                .map(c -> new CandidateFieldChangeResponse(c.getId(), c.getFieldName(), c.getPreviousValue(),
+                        c.getNewValue(), c.getModifiedByName(), c.getCreatedAt()))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -225,6 +369,14 @@ public class RecruitmentService {
         candidate.setManagerRemarks(null);
         if (proposer != null) candidate.setProposedById(proposer.getId());
         candidateRepository.save(candidate);
+
+        String candidateName = candidate.getFirstName() + " " + candidate.getLastName();
+        auditService.record("Offer Proposal Submitted", candidateName, "CTC " + request.offeredCtc());
+        for (var hr : userRepository.findByRoleIn(List.of(com.vikisol.one.security.RoleEnum.CEO, com.vikisol.one.security.RoleEnum.HR_MANAGER))) {
+            notificationService.sendNotification(hr.getId(), "Approval Pending",
+                    "A new offer proposal for " + candidateName + " (CTC " + request.offeredCtc() + ") is awaiting your approval.",
+                    Notification.NotificationType.RECRUITMENT, candidate.getId(), "CANDIDATE");
+        }
 
         return mapCandidate(candidate);
     }
@@ -328,6 +480,18 @@ public class RecruitmentService {
 
         auditService.record("Offer Approved", employee.employeeId(),
                 candidateFullName + " (" + candidate.getEmail() + "), CTC " + candidate.getOfferedCtc());
+        auditService.record("Offer Generated", employee.employeeId(),
+                candidateFullName + " - " + employee.designationTitle() + ", CTC " + candidate.getOfferedCtc());
+
+        if (candidate.getProposedById() != null) {
+            employeeRepository.findById(candidate.getProposedById()).ifPresent(recruiter -> {
+                if (recruiter.getUser() != null) {
+                    notificationService.sendNotification(recruiter.getUser().getId(), "Approval Completed",
+                            "Your offer proposal for " + candidateFullName + " has been approved and the offer letter sent.",
+                            Notification.NotificationType.RECRUITMENT, candidate.getId(), "CANDIDATE");
+                }
+            });
+        }
 
         return new SelectCandidateResponse(
                 candidate.getId(),
@@ -382,29 +546,211 @@ public class RecruitmentService {
 
     // ─── Interviews ───
 
-    public InterviewResponse scheduleInterview(InterviewRequest request) {
+    public InterviewResponse scheduleInterview(InterviewRequest request, UserPrincipal principal) {
+        Candidate candidate = candidateRepository.findById(request.getCandidateId())
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        JobPosting jobPosting = jobPostingRepository.findById(request.getJobPostingId())
+                .orElseThrow(() -> new EntityNotFoundException("Job posting not found"));
+        Employee scheduler = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+
         Interview interview = Interview.builder()
-                .candidate(entityManager.getReference(Candidate.class, request.getCandidateId()))
-                .jobPosting(entityManager.getReference(JobPosting.class, request.getJobPostingId()))
+                .candidate(candidate)
+                .jobPosting(jobPosting)
+                .title(request.getTitle())
+                .type(request.getType() != null ? request.getType() : Interview.InterviewType.CUSTOM)
                 .interviewerId(request.getInterviewerId())
                 .interviewerName(request.getInterviewerName())
+                .additionalInterviewerIds(request.getAdditionalInterviewerIds() != null ? request.getAdditionalInterviewerIds() : new ArrayList<>())
+                .recruiterId(request.getRecruiterId() != null ? request.getRecruiterId() : (scheduler != null ? scheduler.getId() : null))
+                .hrManagerId(request.getHrManagerId())
                 .round(request.getRound())
+                .orderIndex(request.getOrderIndex())
                 .scheduledDate(request.getScheduledDate())
                 .scheduledTime(request.getScheduledTime())
                 .duration(request.getDuration())
+                .timezone(request.getTimezone())
                 .mode(request.getMode() != null ? request.getMode() : Interview.Mode.VIDEO)
+                .platform(request.getPlatform())
+                .meetingLink(request.getMeetingLink())
+                .location(request.getLocation())
+                .notes(request.getNotes())
+                .agenda(request.getAgenda())
+                .prepNotes(request.getPrepNotes())
+                .attachmentUrls(request.getAttachmentUrls())
                 .build();
-        return mapInterview(interviewRepository.save(interview));
+        interview = interviewRepository.save(interview);
+
+        candidate.setStatus(Candidate.Status.INTERVIEW_SCHEDULED);
+        candidateRepository.save(candidate);
+
+        sendInterviewInviteAndNotify(interview, candidate, jobPosting, scheduler, false);
+
+        auditService.record("Interview Scheduled", candidate.getFirstName() + " " + candidate.getLastName(),
+                (interview.getTitle() != null ? interview.getTitle() : interview.getType()) + " on " + interview.getScheduledDate() + " " + interview.getScheduledTime());
+
+        return mapInterview(interview);
     }
 
-    public InterviewResponse submitFeedback(UUID id, InterviewFeedbackRequest request) {
+    /**
+     * Full interview edit (title/type/round/duration/timezone/platform/meeting link/location/
+     * notes/agenda/prep notes/interviewer/additional interviewers/HR manager) - everything stays
+     * editable until the interview is COMPLETED, per the requirement. Diffs interviewer and
+     * meeting link specifically since those need their own named audit events (previously the
+     * only way to change either was a full reschedule, which didn't log either as its own event).
+     */
+    public InterviewResponse editInterview(UUID id, InterviewRequest request, UserPrincipal principal) {
         Interview interview = interviewRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Interview not found"));
+        if (interview.getStatus() == Interview.Status.COMPLETED) {
+            throw new IllegalStateException("This interview is already completed and can no longer be edited");
+        }
+        Employee editor = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+        String editorName = editor != null ? editor.getFirstName() + " " + editor.getLastName() : "System";
+        String candidateName = interview.getCandidate().getFirstName() + " " + interview.getCandidate().getLastName();
+
+        if (request.getInterviewerId() != null && !request.getInterviewerId().equals(interview.getInterviewerId())) {
+            auditService.record("Interviewer Changed", candidateName,
+                    (interview.getInterviewerName() != null ? interview.getInterviewerName() : "-") + " -> " + request.getInterviewerName());
+        }
+        if (request.getMeetingLink() != null && !request.getMeetingLink().equals(interview.getMeetingLink())) {
+            auditService.record("Meeting Link Updated", candidateName, "Round " + interview.getRound());
+        }
+
+        interview.setTitle(request.getTitle());
+        if (request.getType() != null) interview.setType(request.getType());
+        interview.setInterviewerId(request.getInterviewerId());
+        interview.setInterviewerName(request.getInterviewerName());
+        if (request.getAdditionalInterviewerIds() != null) interview.setAdditionalInterviewerIds(request.getAdditionalInterviewerIds());
+        if (request.getHrManagerId() != null) interview.setHrManagerId(request.getHrManagerId());
+        if (request.getRound() > 0) interview.setRound(request.getRound());
+        interview.setDuration(request.getDuration());
+        interview.setTimezone(request.getTimezone());
+        if (request.getMode() != null) interview.setMode(request.getMode());
+        interview.setPlatform(request.getPlatform());
+        interview.setMeetingLink(request.getMeetingLink());
+        interview.setLocation(request.getLocation());
+        interview.setNotes(request.getNotes());
+        interview.setAgenda(request.getAgenda());
+        interview.setPrepNotes(request.getPrepNotes());
+        interview.setAttachmentUrls(request.getAttachmentUrls());
+        interview = interviewRepository.save(interview);
+
+        auditService.record("Interview Edited", candidateName, "Round " + interview.getRound() + " updated by " + editorName);
+        return mapInterview(interview);
+    }
+
+    /** Recruiter reorders a candidate's interview rounds (drag-and-drop in the UI) - just persists the new orderIndex per interview id, in the order given. */
+    public List<InterviewResponse> reorderInterviews(UUID candidateId, List<UUID> orderedInterviewIds) {
+        List<Interview> interviews = interviewRepository.findByCandidateId(candidateId);
+        Map<UUID, Interview> byId = interviews.stream().collect(java.util.stream.Collectors.toMap(Interview::getId, i -> i));
+        for (int index = 0; index < orderedInterviewIds.size(); index++) {
+            Interview interview = byId.get(orderedInterviewIds.get(index));
+            if (interview != null) {
+                interview.setOrderIndex(index);
+                interviewRepository.save(interview);
+            }
+        }
+        return getCandidateInterviews(candidateId);
+    }
+
+    public InterviewResponse rescheduleInterview(UUID id, RescheduleInterviewRequest request, UserPrincipal principal) {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Interview not found"));
+        Candidate candidate = interview.getCandidate();
+        JobPosting jobPosting = interview.getJobPosting();
+        Employee scheduler = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+
+        LocalDate oldDate = interview.getScheduledDate();
+        java.time.LocalTime oldTime = interview.getScheduledTime();
+
+        interview.setScheduledDate(request.scheduledDate());
+        interview.setScheduledTime(request.scheduledTime());
+        interview.setStatus(Interview.Status.SCHEDULED);
+        interview = interviewRepository.save(interview);
+
+        sendInterviewInviteAndNotify(interview, candidate, jobPosting, scheduler, true);
+
+        auditService.record("Interview Rescheduled", candidate.getFirstName() + " " + candidate.getLastName(),
+                oldDate + " " + oldTime + " -> " + interview.getScheduledDate() + " " + interview.getScheduledTime()
+                        + (request.reason() != null ? " (" + request.reason() + ")" : ""));
+
+        return mapInterview(interview);
+    }
+
+    public InterviewResponse cancelInterview(UUID id, CancelInterviewRequest request, UserPrincipal principal) {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Interview not found"));
+        Candidate candidate = interview.getCandidate();
+
+        interview.setStatus(Interview.Status.CANCELLED);
+        interview.setCancellationReason(request.reason());
+        interview = interviewRepository.save(interview);
+
+        String externalEventId = interview.getExternalCalendarEventId();
+        if (externalEventId != null && interview.getRecruiterId() != null) {
+            employeeRepository.findById(interview.getRecruiterId()).ifPresent(recruiter -> {
+                try {
+                    integrationService.getMeetingProvider().cancelMeeting(recruiter.getEmail(), externalEventId, request.reason());
+                } catch (Exception e) {
+                    log.warn("Could not cancel external meeting {}: {}", externalEventId, e.getMessage());
+                }
+            });
+        }
+
+        String candidateName = candidate.getFirstName() + " " + candidate.getLastName();
+        notifyParticipants(interview, "Interview Cancelled",
+                "The interview for " + candidateName + " scheduled on " + interview.getScheduledDate() + " has been cancelled."
+                        + (request.reason() != null ? " Reason: " + request.reason() : ""));
+
+        auditService.record("Interview Cancelled", candidateName,
+                "Round " + interview.getRound() + (request.reason() != null ? " - " + request.reason() : ""));
+
+        return mapInterview(interview);
+    }
+
+    public InterviewResponse submitFeedback(UUID id, InterviewFeedbackRequest request, UserPrincipal principal) {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Interview not found"));
+        Employee submitter = principal != null ? employeeRepository.findByUserId(principal.getId()).orElse(null) : null;
+
         interview.setFeedback(request.getFeedback());
         interview.setRating(request.getRating());
         interview.setResult(request.getResult());
+        interview.setRecommendation(request.getRecommendation());
+        interview.setTechnicalRating(request.getTechnicalRating());
+        interview.setCommunicationRating(request.getCommunicationRating());
+        interview.setProblemSolvingRating(request.getProblemSolvingRating());
+        interview.setCodingRating(request.getCodingRating());
+        interview.setArchitectureRating(request.getArchitectureRating());
+        interview.setCultureFitRating(request.getCultureFitRating());
+        interview.setStrengths(request.getStrengths());
+        interview.setWeaknesses(request.getWeaknesses());
+        if (request.getComments() != null) interview.setFeedback(request.getComments());
+        interview.setSubmittedById(submitter != null ? submitter.getId() : null);
+        interview.setSubmittedAt(LocalDateTime.now());
         interview.setStatus(Interview.Status.COMPLETED);
-        return mapInterview(interviewRepository.save(interview));
+        interview = interviewRepository.save(interview);
+
+        Candidate candidate = interview.getCandidate();
+        String candidateName = candidate.getFirstName() + " " + candidate.getLastName();
+
+        auditService.record("Interview Feedback Submitted", candidateName,
+                "Round " + interview.getRound() + " - " + (request.getRecommendation() != null ? request.getRecommendation() : request.getResult()));
+        auditService.record("Round Completed", candidateName, "Round " + interview.getRound());
+
+        int completedRound = interview.getRound();
+        if (interview.getRecruiterId() != null) {
+            employeeRepository.findById(interview.getRecruiterId()).ifPresent(recruiter -> {
+                if (recruiter.getUser() != null) {
+                    notificationService.sendNotification(recruiter.getUser().getId(),
+                            "Interview Feedback Submitted",
+                            "Feedback for " + candidateName + "'s round " + completedRound + " has been submitted.",
+                            Notification.NotificationType.RECRUITMENT, candidate.getId(), "CANDIDATE");
+                }
+            });
+        }
+
+        return mapInterview(interview);
     }
 
     @Transactional(readOnly = true)
@@ -412,6 +758,190 @@ public class RecruitmentService {
         return interviewRepository
                 .findByInterviewerIdAndScheduledDateGreaterThanEqual(interviewerId, LocalDate.now())
                 .stream().map(this::mapInterview).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<InterviewResponse> getCandidateInterviews(UUID candidateId) {
+        return interviewRepository.findByCandidateIdOrderByScheduledDateAscScheduledTimeAsc(candidateId)
+                .stream().map(this::mapInterview).toList();
+    }
+
+    // ─── Candidate timeline ───
+
+    @Transactional(readOnly = true)
+    public List<CandidateTimelineEntry> getCandidateTimeline(UUID candidateId) {
+        Candidate candidate = candidateRepository.findById(candidateId)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        List<CandidateTimelineEntry> entries = new ArrayList<>();
+
+        entries.add(new CandidateTimelineEntry(candidate.getCreatedAt(), "CANDIDATE_CREATED",
+                "Candidate Created", candidate.getFirstName() + " " + candidate.getLastName() + " added to the pipeline",
+                null, null, null, null, null, null, null));
+
+        for (Interview i : interviewRepository.findByCandidateId(candidateId)) {
+            String interviewerName = i.getInterviewerName();
+            String recruiterName = i.getRecruiterId() != null
+                    ? employeeRepository.findById(i.getRecruiterId()).map(e -> e.getFirstName() + " " + e.getLastName()).orElse(null)
+                    : null;
+            String label = (i.getTitle() != null && !i.getTitle().isBlank()) ? i.getTitle() : i.getType() + " - Round " + i.getRound();
+
+            LocalDateTime scheduledAt = i.getScheduledDate() != null && i.getScheduledTime() != null
+                    ? LocalDateTime.of(i.getScheduledDate(), i.getScheduledTime()) : i.getCreatedAt();
+
+            String eventType = switch (i.getStatus()) {
+                case CANCELLED -> "INTERVIEW_CANCELLED";
+                case COMPLETED -> "INTERVIEW_COMPLETED";
+                case RESCHEDULED -> "INTERVIEW_RESCHEDULED";
+                default -> "INTERVIEW_SCHEDULED";
+            };
+            entries.add(new CandidateTimelineEntry(
+                    i.getStatus() == Interview.Status.COMPLETED && i.getSubmittedAt() != null ? i.getSubmittedAt() : scheduledAt,
+                    eventType, label,
+                    i.getStatus() == Interview.Status.CANCELLED ? i.getCancellationReason() : null,
+                    interviewerName, recruiterName, i.getDuration() > 0 ? i.getDuration() : null,
+                    i.getRecommendation() != null ? i.getRecommendation().name() : (i.getResult() != null ? i.getResult().name() : null),
+                    i.getNotes(), i.getFeedback(), i.getTechnicalRating()
+            ));
+        }
+
+        for (CandidateFieldChange fc : candidateFieldChangeRepository.findByCandidateIdOrderByCreatedAtDesc(candidateId)) {
+            entries.add(new CandidateTimelineEntry(fc.getCreatedAt(), "FIELD_CHANGED",
+                    fc.getFieldName() + " Changed", fc.getPreviousValue() + " -> " + fc.getNewValue(),
+                    null, fc.getModifiedByName(), null, null, null, null, null));
+        }
+
+        if (candidate.getStatus() == Candidate.Status.SELECTED && candidate.getOfferedCtc() != null) {
+            entries.add(new CandidateTimelineEntry(candidate.getUpdatedAt(), "OFFER_GENERATED",
+                    "Offer Generated", "CTC " + candidate.getOfferedCtc(), null, null, null, null, null, null, null));
+        }
+
+        return entries.stream()
+                .sorted(Comparator.comparing(CandidateTimelineEntry::timestamp,
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .toList();
+    }
+
+    // ─── Recruiter dashboard ───
+
+    // Takes the User principal (not an Employee id directly) since every other caller of this
+    // service only has the logged-in User's id - resolving to the Employee id here, once, avoids
+    // every call site needing to do the same lookup (and getting it wrong, as the naive
+    // `principal.getId()` pass-through would - that's a User id, not the Employee id that
+    // Interview.recruiterId/Candidate.assignedRecruiterId actually store).
+    @Transactional(readOnly = true)
+    public RecruiterDashboardStats getRecruiterDashboardStats(UserPrincipal principal) {
+        Employee recruiter = employeeRepository.findByUserId(principal.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Employee profile not found for this user"));
+        UUID recruiterEmployeeId = recruiter.getId();
+
+        long upcomingInterviews = interviewRepository
+                .findByRecruiterIdAndScheduledDateGreaterThanEqualAndStatus(recruiterEmployeeId, LocalDate.now(), Interview.Status.SCHEDULED)
+                .size();
+        long pendingFeedback = interviewRepository.findByRecruiterIdAndStatus(recruiterEmployeeId, Interview.Status.SCHEDULED).stream()
+                .filter(i -> i.getScheduledDate() != null && i.getScheduledDate().isBefore(LocalDate.now().plusDays(1)) && i.getRecommendation() == null)
+                .count();
+        long offersPending = candidateRepository.countByAssignedRecruiterIdAndStatus(recruiterEmployeeId, Candidate.Status.PENDING_APPROVAL);
+        long rejectedCandidates = candidateRepository.countByAssignedRecruiterIdAndStatus(recruiterEmployeeId, Candidate.Status.REJECTED);
+        long waitingForScheduling = candidateRepository.countByAssignedRecruiterIdAndStatus(recruiterEmployeeId, Candidate.Status.SHORTLISTED);
+        long waitingForHrApproval = candidateRepository.countByAssignedRecruiterIdAndStatus(recruiterEmployeeId, Candidate.Status.PENDING_APPROVAL);
+        long waitingForManagerApproval = candidateRepository.countByAssignedRecruiterIdAndStatus(recruiterEmployeeId, Candidate.Status.REVISION_REQUESTED);
+        long waitingForOffer = candidateRepository.countByAssignedRecruiterIdAndStatus(recruiterEmployeeId, Candidate.Status.SELECTED);
+
+        return new RecruiterDashboardStats(upcomingInterviews, pendingFeedback, offersPending, rejectedCandidates,
+                waitingForScheduling, waitingForHrApproval, waitingForManagerApproval, waitingForOffer);
+    }
+
+    // ─── Interview email/notification helper ───
+
+    private void sendInterviewInviteAndNotify(Interview interview, Candidate candidate, JobPosting jobPosting, Employee scheduler, boolean isReschedule) {
+        List<String> toEmails = new ArrayList<>();
+        List<String> ccEmails = new ArrayList<>();
+        if (candidate.getEmail() != null) toEmails.add(candidate.getEmail());
+
+        Employee primaryInterviewer = interview.getInterviewerId() != null
+                ? employeeRepository.findById(interview.getInterviewerId()).orElse(null) : null;
+        if (primaryInterviewer != null && primaryInterviewer.getEmail() != null) toEmails.add(primaryInterviewer.getEmail());
+
+        if (scheduler != null && scheduler.getEmail() != null) ccEmails.add(scheduler.getEmail());
+        if (interview.getHrManagerId() != null) {
+            employeeRepository.findById(interview.getHrManagerId())
+                    .ifPresent(hr -> { if (hr.getEmail() != null) ccEmails.add(hr.getEmail()); });
+        }
+        for (UUID additionalId : interview.getAdditionalInterviewerIds()) {
+            employeeRepository.findById(additionalId).ifPresent(e -> { if (e.getEmail() != null) ccEmails.add(e.getEmail()); });
+        }
+
+        String candidateName = candidate.getFirstName() + " " + candidate.getLastName();
+        String platformLabel = interview.getPlatform() != null ? interview.getPlatform().name().replace('_', ' ') : interview.getMode().name();
+
+        // Step 1: create/update the actual meeting (Teams + calendar event) via whichever
+        // MeetingProvider is configured - Recruitment never talks to Graph/Google directly, only
+        // to this interface, per the integration abstraction layer.
+        var meetingProvider = integrationService.getMeetingProvider();
+        if (meetingProvider.isConfigured() && scheduler != null && scheduler.getEmail() != null) {
+            List<String> attendees = new ArrayList<>(toEmails);
+            attendees.addAll(ccEmails);
+            var meetingRequest = new com.vikisol.one.integration.provider.MeetingRequest(
+                    (interview.getTitle() != null ? interview.getTitle() : jobPosting.getTitle() + " - " + interview.getType() + " Interview"),
+                    "Interview for " + jobPosting.getTitle(),
+                    java.time.LocalDateTime.of(interview.getScheduledDate(), interview.getScheduledTime()),
+                    java.time.LocalDateTime.of(interview.getScheduledDate(), interview.getScheduledTime()).plusMinutes(interview.getDuration() > 0 ? interview.getDuration() : 30),
+                    interview.getTimezone(), attendees, scheduler.getEmail(), interview.getLocation(),
+                    interview.getPlatform() != Interview.Platform.IN_PERSON && interview.getPlatform() != Interview.Platform.PHONE_CALL
+            );
+            try {
+                var result = (isReschedule && interview.getExternalCalendarEventId() != null)
+                        ? meetingProvider.updateMeeting(scheduler.getEmail(), interview.getExternalCalendarEventId(), meetingRequest)
+                        : meetingProvider.createMeeting(meetingRequest);
+                interview.setExternalCalendarEventId(result.calendarEventId());
+                interview.setExternalMeetingId(result.meetingId());
+                interview.setExternalTeamsMeetingId(result.teamsMeetingId());
+                interview.setMeetingProviderName(meetingProvider.getProviderName());
+                if (result.joinUrl() != null) interview.setMeetingLink(result.joinUrl());
+                interview = interviewRepository.save(interview);
+            } catch (Exception e) {
+                log.warn("Meeting provider ({}) failed, falling back to manually-entered meeting link: {}", meetingProvider.getProviderName(), e.getMessage());
+            }
+        }
+
+        // Step 2: send the invite - via the same provider's mailbox if it also implements
+        // MailProvider (Microsoft 365 does), otherwise the default Resend account.
+        if (!toEmails.isEmpty()) {
+            var content = emailService.buildInterviewInviteEmail(
+                    candidateName, jobPosting.getTitle(), jobPosting.getDescription(), jobPosting.getSkills(),
+                    (isReschedule ? "[Rescheduled] " : "") + (interview.getTitle() != null ? interview.getTitle() : jobPosting.getTitle() + " - " + interview.getType() + " Interview"),
+                    interview.getType() != null ? interview.getType().name() : "INTERVIEW",
+                    interview.getScheduledDate(), interview.getScheduledTime(), interview.getDuration(), interview.getTimezone(),
+                    platformLabel, interview.getMeetingLink(), interview.getLocation(), interview.getAgenda(),
+                    scheduler != null ? scheduler.getFirstName() + " " + scheduler.getLastName() : null,
+                    scheduler != null ? scheduler.getEmail() : null,
+                    interview.getId().toString()
+            );
+            var attachments = List.of(new com.vikisol.one.integration.provider.MailMessage.Attachment("interview_invite.ics", content.ics()));
+            var mailMessage = new com.vikisol.one.integration.provider.MailMessage(toEmails, ccEmails, content.subject(), content.html(), attachments,
+                    scheduler != null ? scheduler.getEmail() : null);
+            integrationService.getMailProvider().sendMail(mailMessage);
+        }
+
+        notifyParticipants(interview, isReschedule ? "Interview Rescheduled" : "Interview Scheduled",
+                (isReschedule ? "Interview for " : "New interview for ") + candidateName + " on " + interview.getScheduledDate() + " at " + interview.getScheduledTime());
+    }
+
+    private void notifyParticipants(Interview interview, String title, String message) {
+        List<UUID> employeeIdsToNotify = new ArrayList<>();
+        if (interview.getInterviewerId() != null) employeeIdsToNotify.add(interview.getInterviewerId());
+        if (interview.getRecruiterId() != null) employeeIdsToNotify.add(interview.getRecruiterId());
+        if (interview.getHrManagerId() != null) employeeIdsToNotify.add(interview.getHrManagerId());
+        employeeIdsToNotify.addAll(interview.getAdditionalInterviewerIds());
+
+        for (UUID empId : employeeIdsToNotify.stream().distinct().toList()) {
+            employeeRepository.findById(empId).ifPresent(emp -> {
+                if (emp.getUser() != null) {
+                    notificationService.sendNotification(emp.getUser().getId(), title, message,
+                            Notification.NotificationType.RECRUITMENT, interview.getCandidate().getId(), "CANDIDATE");
+                }
+            });
+        }
     }
 
     // ─── Mappers ───
@@ -454,11 +984,25 @@ public class RecruitmentService {
         r.setLastName(c.getLastName());
         r.setEmail(c.getEmail());
         r.setPhone(c.getPhone());
+        r.setAlternateMobile(c.getAlternateMobile());
+        r.setCurrentAddress(c.getCurrentAddress());
+        r.setCity(c.getCity());
+        r.setState(c.getState());
+        r.setCountry(c.getCountry());
+        r.setLinkedinUrl(c.getLinkedinUrl());
+        r.setGithubUrl(c.getGithubUrl());
+        r.setPortfolioUrl(c.getPortfolioUrl());
         r.setCurrentCompany(c.getCurrentCompany());
         r.setCurrentDesignation(c.getCurrentDesignation());
+        r.setEmploymentType(c.getEmploymentType());
         r.setExperienceYears(c.getExperienceYears());
+        r.setRelevantExperienceYears(c.getRelevantExperienceYears());
+        r.setCertifications(c.getCertifications());
         r.setExpectedSalary(c.getExpectedSalary());
+        r.setCurrentCtc(c.getCurrentCtc());
         r.setNoticePeriod(c.getNoticePeriod());
+        r.setCurrentLocation(c.getCurrentLocation());
+        r.setPreferredLocation(c.getPreferredLocation());
         r.setResumeUrl(c.getResumeUrl());
         r.setSkills(c.getSkills());
         r.setSource(c.getSource());
@@ -479,8 +1023,14 @@ public class RecruitmentService {
         }
         r.setOfferedDateOfJoining(c.getOfferedDateOfJoining());
         r.setOfferedReportingManagerId(c.getOfferedReportingManagerId());
+        r.setOfferedJoiningBonus(c.getOfferedJoiningBonus());
+        r.setOfferedVariablePay(c.getOfferedVariablePay());
         r.setConvertedEmployeeId(c.getConvertedEmployeeId());
         r.setManagerRemarks(c.getManagerRemarks());
+        r.setAssignedRecruiterId(c.getAssignedRecruiterId());
+        r.setHiringManagerId(c.getHiringManagerId());
+        r.setBusinessUnit(c.getBusinessUnit());
+        r.setPriority(c.getPriority());
         r.setCreatedAt(c.getCreatedAt());
         r.setUpdatedAt(c.getUpdatedAt());
         return r;
@@ -497,17 +1047,59 @@ public class RecruitmentService {
             r.setJobPostingId(i.getJobPosting().getId());
             r.setJobPostingTitle(i.getJobPosting().getTitle());
         }
+        r.setTitle(i.getTitle());
+        r.setType(i.getType());
         r.setInterviewerId(i.getInterviewerId());
         r.setInterviewerName(i.getInterviewerName());
+        r.setAdditionalInterviewerIds(i.getAdditionalInterviewerIds());
+        r.setRecruiterId(i.getRecruiterId());
+        if (i.getRecruiterId() != null) {
+            employeeRepository.findById(i.getRecruiterId())
+                    .ifPresent(e -> r.setRecruiterName(e.getFirstName() + " " + e.getLastName()));
+        }
+        r.setHrManagerId(i.getHrManagerId());
+        if (i.getHrManagerId() != null) {
+            employeeRepository.findById(i.getHrManagerId())
+                    .ifPresent(e -> r.setHrManagerName(e.getFirstName() + " " + e.getLastName()));
+        }
         r.setRound(i.getRound());
+        r.setOrderIndex(i.getOrderIndex());
         r.setScheduledDate(i.getScheduledDate());
         r.setScheduledTime(i.getScheduledTime());
         r.setDuration(i.getDuration());
+        r.setTimezone(i.getTimezone());
         r.setMode(i.getMode());
+        r.setPlatform(i.getPlatform());
+        r.setMeetingLink(i.getMeetingLink());
+        r.setExternalCalendarEventId(i.getExternalCalendarEventId());
+        r.setExternalMeetingId(i.getExternalMeetingId());
+        r.setExternalTeamsMeetingId(i.getExternalTeamsMeetingId());
+        r.setMeetingProviderName(i.getMeetingProviderName());
+        r.setLocation(i.getLocation());
+        r.setNotes(i.getNotes());
+        r.setAgenda(i.getAgenda());
+        r.setPrepNotes(i.getPrepNotes());
+        r.setAttachmentUrls(i.getAttachmentUrls());
         r.setStatus(i.getStatus());
+        r.setCancellationReason(i.getCancellationReason());
         r.setFeedback(i.getFeedback());
         r.setRating(i.getRating());
         r.setResult(i.getResult());
+        r.setRecommendation(i.getRecommendation());
+        r.setTechnicalRating(i.getTechnicalRating());
+        r.setCommunicationRating(i.getCommunicationRating());
+        r.setProblemSolvingRating(i.getProblemSolvingRating());
+        r.setCodingRating(i.getCodingRating());
+        r.setArchitectureRating(i.getArchitectureRating());
+        r.setCultureFitRating(i.getCultureFitRating());
+        r.setStrengths(i.getStrengths());
+        r.setWeaknesses(i.getWeaknesses());
+        r.setSubmittedById(i.getSubmittedById());
+        if (i.getSubmittedById() != null) {
+            employeeRepository.findById(i.getSubmittedById())
+                    .ifPresent(e -> r.setSubmittedByName(e.getFirstName() + " " + e.getLastName()));
+        }
+        r.setSubmittedAt(i.getSubmittedAt());
         r.setCreatedAt(i.getCreatedAt());
         r.setUpdatedAt(i.getUpdatedAt());
         return r;

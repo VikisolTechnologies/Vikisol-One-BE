@@ -47,6 +47,8 @@ cloudinary:
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
 
+  integration-encryption-key: ${INTEGRATION_ENCRYPTION_KEY:local-dev-only-integration-key-do-not-use-in-prod!!}
+
   jwt:
     # Local-dev-only fallback (this file is never used in prod - see application-prod.yml, which
     # has no fallback and fails fast instead). Still, don't reuse this value anywhere real.

@@ -18,4 +18,8 @@ public interface CandidateRepository extends JpaRepository<Candidate, UUID> {
     List<Candidate> findByStatus(Candidate.Status status);
 
     Page<Candidate> findByJobPostingId(UUID jobPostingId, Pageable pageable);
+
+    List<Candidate> findByAssignedRecruiterIdAndStatus(UUID recruiterId, Candidate.Status status);
+
+    long countByAssignedRecruiterIdAndStatus(UUID recruiterId, Candidate.Status status);
 }
