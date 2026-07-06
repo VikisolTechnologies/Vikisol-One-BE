@@ -35,6 +35,7 @@ public class EmployeeController {
     private final EmployeeTimelineService employeeTimelineService;
     private final EmployeeDashboardService employeeDashboardService;
     private final com.vikisol.one.employee.service.AccountStatusService accountStatusService;
+    private final com.vikisol.one.auth.service.LoginLockoutService loginLockoutService;
     private final EmployeeRepository employeeRepository;
 
     @GetMapping
@@ -218,5 +219,17 @@ public class EmployeeController {
                 .orElse(false);
         if (!privileged && !isSelf) throw new BadRequestException("You do not have permission to view this employee's account status");
         return ResponseEntity.ok(new ApiResponse<>(true, "Account status retrieved", accountStatusService.getAccountStatus(employeeId)));
+    }
+
+    // Manual unlock (Security Center / Linked Accounts panel) - lets an admin clear a lockout
+    // before it expires on its own, rather than waiting out the configured lockout duration.
+    @PostMapping("/{employeeId}/unlock-account")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> unlockAccount(@PathVariable UUID employeeId) {
+        var employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new BadRequestException("Employee not found"));
+        if (employee.getUser() == null) throw new BadRequestException("This employee has no linked login account");
+        loginLockoutService.unlockAccount(employee.getUser().getEmail());
+        return ResponseEntity.ok(new ApiResponse<>(true, "Account unlocked", null));
     }
 }

@@ -52,6 +52,7 @@ public class AuthService {
     private final PasswordPolicy passwordPolicy;
     private final PasswordHistoryEntryRepository passwordHistoryEntryRepository;
     private final LoginHistoryService loginHistoryService;
+    private final com.vikisol.one.session.service.ActiveSessionService activeSessionService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -110,6 +111,7 @@ public class AuthService {
         userRepository.save(authedUser);
         auditService.record("Login Succeeded", authedUser.getEmail(), null);
         loginHistoryService.record(email, com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.LOGIN_SUCCESS, true);
+        activeSessionService.recordLogin(email, jwtTokenProvider.getJtiFromToken(token));
 
         boolean passwordExpired = isPasswordExpired(authedUser, authSettings);
         return new AuthResponse(token, refreshToken, authedUser.getEmail(),
@@ -134,6 +136,7 @@ public class AuthService {
         recordPasswordHistory(user, newHash);
         passwordResetTokenRepository.invalidateAllForUser(user);
         auditService.record("Password Changed", user.getEmail(), null);
+        emailService.sendPasswordChangedEmail(user.getEmail(), user.getFirstName(), Instant.now().toString());
     }
 
     // Step 1-4 of Forgot Password: employee identifies themselves by OFFICIAL email only; the
@@ -206,6 +209,7 @@ public class AuthService {
 
         auditService.record("Password Reset Completed", user.getEmail(), null);
         loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.PASSWORD_RESET_COMPLETED, true);
+        emailService.sendPasswordChangedEmail(user.getEmail(), user.getFirstName(), Instant.now().toString());
     }
 
     // Password History: blocks reuse of the last N passwords (N = AuthSettingsDto.passwordHistoryCount(),
@@ -284,5 +288,6 @@ public class AuthService {
         activationTokenRepository.save(activationToken);
         auditService.record("Account Activated", user.getEmail(), null);
         loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.ACCOUNT_ACTIVATED, true);
+        emailService.sendWelcomeEmail(user.getEmail(), user.getFirstName());
     }
 }

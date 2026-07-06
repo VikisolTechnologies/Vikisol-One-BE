@@ -29,6 +29,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
     private final AuthSettingsService authSettingsService;
+    private final com.vikisol.one.session.service.ActiveSessionService activeSessionService;
 
     // Requests a user with an expired password must still be able to make - everything else is
     // blocked with 403 until they change it. "/auth/login" isn't here since it's permitAll and
@@ -57,7 +58,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Instant tokenIssuedAt = jwtTokenProvider.getIssuedAtFromToken(token);
             boolean staleSession = passwordChangedAt != null && tokenIssuedAt.isBefore(passwordChangedAt);
 
-            if (!staleSession) {
+            // Per-session revocation (Active Sessions "Revoke"/"Force Logout") - independent of
+            // the passwordChangedAt check above. touch() returns false only if this specific jti
+            // was explicitly revoked; it returns true (fail-open) for tokens issued before this
+            // feature existed, so pre-existing sessions aren't retroactively logged out.
+            boolean sessionRevoked = !activeSessionService.touch(jwtTokenProvider.getJtiFromToken(token));
+
+            if (!staleSession && !sessionRevoked) {
                 // Password Expiry enforcement: a real server-side block, not just a frontend
                 // redirect the employee could bypass by calling the API directly. Every endpoint
                 // except change-password/me returns 403 until the password is updated.

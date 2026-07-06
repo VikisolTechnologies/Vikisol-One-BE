@@ -40,10 +40,23 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .subject(email)
+                .id(java.util.UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(key)
                 .compact();
+    }
+
+    // Per-token session identifier (standard "jti" claim) - lets Active Sessions track/revoke one
+    // specific token without invalidating every other session for the user (unlike the
+    // passwordChangedAt-based invalidation, which is all-or-nothing).
+    public String getJtiFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getId();
     }
 
     public String getEmailFromToken(String token) {

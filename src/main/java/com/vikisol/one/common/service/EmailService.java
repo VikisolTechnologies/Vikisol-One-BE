@@ -3,6 +3,8 @@ package com.vikisol.one.common.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vikisol.one.communication.entity.EmailLog;
 import com.vikisol.one.communication.service.EmailLogService;
+import com.vikisol.one.emailtemplate.entity.EmailTemplate.TemplateKey;
+import com.vikisol.one.emailtemplate.service.EmailTemplateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +31,7 @@ public class EmailService {
 
     private final ObjectMapper objectMapper;
     private final EmailLogService emailLogService;
+    private final EmailTemplateService emailTemplateService;
 
     @Value("${resend.api-key:}")
     private String resendApiKey;
@@ -460,17 +463,34 @@ public class EmailService {
     // until this activation link is used), with a one-time link instead of a temp password. No
     // password ever appears in an email under this flow.
     public void sendActivationEmail(String personalEmail, String name, String activationLink) {
-        String subject = "Welcome to Vikisol Technologies - Activate Your Account";
-        String body =
-                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Welcome to Vikisol Technologies, " + name + "! &#127881;</h2>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">Your account on <b>Vikisol One</b>, our HR platform, has been created. Click below to activate your account and set your own password.</p>"
-                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px;\">"
-                + "<tr><td align=\"center\">"
-                + "<a href=\"" + activationLink + "\" style=\"display:inline-block;background:#FF6A00;color:#fff;text-decoration:none;font-weight:600;padding:12px 28px;border-radius:8px;\">Activate Account</a>"
-                + "</td></tr></table>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">This link expires in 24 hours. If it expires, ask HR to resend your activation email.</p>"
-                + signatureBlock("Regards", "Human Resources");
-        sendHtmlEmail(personalEmail, subject, brandedTemplate("Activate your Vikisol One account", body), EmailLog.Category.WELCOME, null);
+        var rendered = emailTemplateService.render(TemplateKey.ACCOUNT_ACTIVATION,
+                Map.of("name", name, "activationLink", activationLink));
+        sendHtmlEmail(personalEmail, rendered.subject(), brandedTemplate("Activate your Vikisol One account", rendered.bodyHtml()), EmailLog.Category.WELCOME, null);
+    }
+
+    // Sent once activation actually completes (distinct from the activation invite above, which
+    // is sent when the account is first created).
+    public void sendWelcomeEmail(String officialEmail, String name) {
+        var rendered = emailTemplateService.render(TemplateKey.WELCOME_EMAIL, Map.of("name", name));
+        sendHtmlEmail(officialEmail, rendered.subject(), brandedTemplate("Welcome to Vikisol One", rendered.bodyHtml()), EmailLog.Category.WELCOME, null);
+    }
+
+    public void sendPasswordChangedEmail(String officialEmail, String name, String changedAt) {
+        var rendered = emailTemplateService.render(TemplateKey.PASSWORD_CHANGED,
+                Map.of("name", name, "officialEmail", officialEmail, "changedAt", changedAt));
+        sendHtmlEmail(officialEmail, rendered.subject(), brandedTemplate("Your password was changed", rendered.bodyHtml()), EmailLog.Category.OTHER, null);
+    }
+
+    public void sendAccountLockedEmail(String officialEmail, String name, int lockoutMinutes) {
+        var rendered = emailTemplateService.render(TemplateKey.ACCOUNT_LOCKED,
+                Map.of("name", name, "officialEmail", officialEmail, "lockoutMinutes", String.valueOf(lockoutMinutes)));
+        sendHtmlEmail(officialEmail, rendered.subject(), brandedTemplate("Your account has been locked", rendered.bodyHtml()), EmailLog.Category.OTHER, null);
+    }
+
+    public void sendAccountUnlockedEmail(String officialEmail, String name) {
+        var rendered = emailTemplateService.render(TemplateKey.ACCOUNT_UNLOCKED,
+                Map.of("name", name, "officialEmail", officialEmail));
+        sendHtmlEmail(officialEmail, rendered.subject(), brandedTemplate("Your account has been unlocked", rendered.bodyHtml()), EmailLog.Category.OTHER, null);
     }
 
     // Forgot Password - always sent to the employee's PERSONAL email, never the official company
@@ -478,19 +498,9 @@ public class EmailService {
     // Password screen. officialEmail is shown in the email body purely as a reminder of what to
     // log back in with after resetting.
     public void sendPasswordResetEmail(String personalEmail, String name, String officialEmail, String resetLink) {
-        String subject = "Reset Your Vikisol HRMS Password";
-        String body =
-                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Reset Your Vikisol HRMS Password</h2>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">Hello " + name + ",</p>"
-                + "<p style=\"margin:0 0 20px;color:#444;\">We received a request to reset the password for your Vikisol HRMS account (<b>" + officialEmail + "</b>).</p>"
-                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px;\">"
-                + "<tr><td align=\"center\">"
-                + "<a href=\"" + resetLink + "\" style=\"display:inline-block;background:#FF6A00;color:#fff;text-decoration:none;font-weight:600;padding:12px 28px;border-radius:8px;\">Reset Password</a>"
-                + "</td></tr></table>"
-                + "<p style=\"margin:0 0 8px;color:#444;\">This link expires in 30 minutes.</p>"
-                + "<p style=\"margin:0 0 20px;color:#888;font-size:13px;\">If you did not request this, you can safely ignore this email - your password will not be changed.</p>"
-                + signatureBlock("Regards", "Human Resources");
-        sendHtmlEmail(personalEmail, subject, brandedTemplate("Reset your Vikisol HRMS password", body), EmailLog.Category.OTHER, null);
+        var rendered = emailTemplateService.render(TemplateKey.PASSWORD_RESET,
+                Map.of("name", name, "officialEmail", officialEmail, "resetLink", resetLink));
+        sendHtmlEmail(personalEmail, rendered.subject(), brandedTemplate("Reset your Vikisol HRMS password", rendered.bodyHtml()), EmailLog.Category.OTHER, null);
     }
 
     public void sendAssessmentResultEmail(String email, String name, String testName, double score, double maxScore, boolean passed) {
