@@ -27,12 +27,18 @@ public class BrandingService {
     @Value("${resend.support-email:connect@vikisol.in}")
     private String defaultSupportEmail;
 
-    private static final Map<String, String> DEFAULTS = Map.of(
-            "BRANDING_COMPANY_NAME", "Vikisol Technologies Pvt Ltd",
-            "BRANDING_COMPANY_ADDRESS", "Bengaluru, Karnataka, India",
-            "BRANDING_WEBSITE", "www.vikisol.in",
-            "BRANDING_CEO_NAME", "Syam Prabhakar Seeli",
-            "BRANDING_HR_NAME", "HR Team"
+    private static final Map<String, String> DEFAULTS = Map.ofEntries(
+            Map.entry("BRANDING_COMPANY_NAME", "Vikisol Technologies Pvt Ltd"),
+            Map.entry("BRANDING_COMPANY_ADDRESS", "Bengaluru, Karnataka, India"),
+            Map.entry("BRANDING_WEBSITE", "www.vikisol.in"),
+            Map.entry("BRANDING_CEO_NAME", "Syam Prabhakar Seeli"),
+            Map.entry("BRANDING_HR_NAME", "HR Team"),
+            Map.entry("BRANDING_TAGLINE", "TECHNOLOGY • TALENT • TRANSFORMATION"),
+            Map.entry("BRANDING_OFFICE_LOCATION", "Hyderabad"),
+            Map.entry("BRANDING_WORK_START_TIME", "9:00 AM"),
+            Map.entry("BRANDING_WORK_END_TIME", "6:00 PM"),
+            Map.entry("BRANDING_WORK_DAYS", "Monday to Friday"),
+            Map.entry("BRANDING_ORIENTATION_CONTACT", "the HR Department")
     );
 
     public BrandingDto getBranding() {
@@ -60,7 +66,13 @@ public class BrandingService {
                 get("BRANDING_PRIMARY_COLOR", "#FF6B35"),
                 get("BRANDING_SECONDARY_COLOR", "#0a0a0a"),
                 get("BRANDING_FONT_FAMILY", "Helvetica, Arial, sans-serif"),
-                get("BRANDING_DEFAULT_MARGIN", "36px 40px")
+                get("BRANDING_DEFAULT_MARGIN", "36px 40px"),
+                get("BRANDING_TAGLINE", DEFAULTS.get("BRANDING_TAGLINE")),
+                get("BRANDING_OFFICE_LOCATION", DEFAULTS.get("BRANDING_OFFICE_LOCATION")),
+                get("BRANDING_WORK_START_TIME", DEFAULTS.get("BRANDING_WORK_START_TIME")),
+                get("BRANDING_WORK_END_TIME", DEFAULTS.get("BRANDING_WORK_END_TIME")),
+                get("BRANDING_WORK_DAYS", DEFAULTS.get("BRANDING_WORK_DAYS")),
+                get("BRANDING_ORIENTATION_CONTACT", DEFAULTS.get("BRANDING_ORIENTATION_CONTACT"))
         );
     }
 

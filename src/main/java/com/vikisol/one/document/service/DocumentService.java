@@ -176,8 +176,18 @@ public class DocumentService {
     public DownloadedFile downloadDocument(UUID id) {
         Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Document not found with id: " + id));
+        // Real bug, confirmed live: for a document whose stored fileUrl is null or missing a
+        // scheme (a relative path from a legacy/broken upload, not a real Cloudinary URL),
+        // URI.create() throws IllegalArgumentException("URI with undefined scheme") - previously
+        // uncaught here, so that raw Java exception message surfaced directly in the user's toast
+        // instead of a clear, actionable error.
+        String fileUrl = document.getFileUrl();
+        if (fileUrl == null || fileUrl.isBlank() || !(fileUrl.startsWith("http://") || fileUrl.startsWith("https://"))) {
+            throw new com.vikisol.one.common.exception.BadRequestException(
+                    "This document's file is missing or was never uploaded correctly. Please re-upload it.");
+        }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(document.getFileUrl()))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(fileUrl))
                     .timeout(Duration.ofSeconds(20)).GET().build();
             HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {

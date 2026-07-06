@@ -200,7 +200,7 @@ public class DocumentGenerationService {
                   + "</td></tr></table>"
                 : "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:" + branding.secondaryColor() + ";padding:24px 40px;\">"
                   + "<img src=\"" + branding.logoUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"height:34px;\"/>"
-                  + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &#8226; TALENT &#8226; TRANSFORMATION</div>"
+                  + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">" + branding.tagline() + "</div>"
                   + "</td></tr></table>";
         return "<html><head><meta charset=\"UTF-8\"/></head>"
                 + "<body style=\"margin:0;padding:0;font-family:" + branding.fontFamily() + ";color:#1a1a1a;\">"

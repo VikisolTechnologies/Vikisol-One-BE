@@ -376,67 +376,6 @@ public class EmailService {
         }
     }
 
-    /** Builds the standalone A4 offer-letter document (for the PDF attachment) - separate from the shorter notification email above. */
-    public String buildOfferLetterPdfHtml(String candidateName, String employeeId, String designation,
-                                           BigDecimal annualCtc, Map<String, BigDecimal> ctcBreakup,
-                                           LocalDate dateOfJoining, String reportingManagerName, LocalDate issueDate) {
-        StringBuilder breakupRows = new StringBuilder();
-        if (ctcBreakup != null) {
-            ctcBreakup.forEach((k, v) -> {
-                if (!"ctc".equals(k)) {
-                    String label = k.replaceAll("([A-Z])", " $1");
-                    label = Character.toUpperCase(label.charAt(0)) + label.substring(1);
-                    breakupRows.append("<tr><td style=\"padding:5px 0;color:#444;font-size:11px;border-bottom:1px solid #eee;\">" + label + "</td>"
-                            + "<td style=\"padding:5px 0;color:#111;font-size:11px;font-weight:bold;text-align:right;border-bottom:1px solid #eee;\">Rs. " + v + "</td></tr>");
-                }
-            });
-        }
-        LocalDate expiry = issueDate.plusDays(7);
-
-        return "<html><head><meta charset=\"UTF-8\"/></head>"
-                + "<body style=\"margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;\">"
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#0a0a0a;padding:24px 40px;\">"
-                + "<img src=\"" + logoUrl + "\" alt=\"Vikisol\" style=\"height:34px;\"/>"
-                + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &#8226; TALENT &#8226; TRANSFORMATION</div>"
-                + "</td></tr></table>"
-                + "<div style=\"padding:36px 40px;\">"
-                + "<h1 style=\"font-size:18px;letter-spacing:1px;text-align:center;margin:0 0 4px;\">OFFER OF EMPLOYMENT</h1>"
-                + "<p style=\"text-align:center;color:#777;font-size:11px;margin:0 0 28px;\">Date: " + issueDate + "</p>"
-                + "<p style=\"font-size:12px;line-height:1.7;margin:0 0 4px;\">To,</p>"
-                + "<p style=\"font-size:12px;line-height:1.7;font-weight:bold;margin:0 0 20px;\">" + candidateName + "</p>"
-                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">Dear " + candidateName + ",</p>"
-                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 16px;\">We are pleased to offer you employment with <b>Vikisol Technologies Pvt Ltd</b> ('the Company') as <b>" + designation + "</b>"
-                + (reportingManagerName != null && !reportingManagerName.isBlank() ? ", reporting to <b>" + reportingManagerName + "</b>," : ",")
-                + " on the terms set out below.</p>"
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:6px;padding:14px 18px;margin:0 0 20px;\">"
-                + "<tr><td colspan=\"2\" style=\"padding-bottom:8px;\"><b style=\"font-size:12px;\">Employment Terms</b></td></tr>"
-                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Employee ID</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">" + employeeId + "</td></tr>"
-                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Designation</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">" + designation + "</td></tr>"
-                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Date of Joining</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">" + dateOfJoining + "</td></tr>"
-                + "<tr><td style=\"font-size:11px;color:#666;padding:3px 0;\">Annual CTC</td><td style=\"font-size:11px;font-weight:bold;text-align:right;\">Rs. " + annualCtc + "</td></tr>"
-                + "</table>"
-                + "<p style=\"font-size:12px;font-weight:bold;margin:0 0 8px;\">Monthly CTC Breakup</p>"
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:0 0 20px;\">" + breakupRows + "</table>"
-                + "<p style=\"font-size:12px;font-weight:bold;margin:0 0 8px;\">Terms &amp; Conditions</p>"
-                + "<ol style=\"font-size:11px;line-height:1.8;color:#333;margin:0 0 20px;padding-left:18px;\">"
-                + "<li>This offer is contingent upon successful completion of your background verification and submission of required documents.</li>"
-                + "<li>You will be on probation for a period as communicated by HR, during which either party may terminate employment as per Company policy.</li>"
-                + "<li>Your compensation and benefits are governed by the Company's HR policies, which may be revised from time to time.</li>"
-                + "<li>You are expected to maintain confidentiality of the Company's proprietary and business information during and after your employment.</li>"
-                + "<li>This offer is valid for acceptance until <b>" + expiry + "</b>, after which it stands withdrawn unless extended in writing by the Company.</li>"
-                + "</ol>"
-                + "<p style=\"font-size:12px;line-height:1.8;margin:0 0 32px;\">Please sign and return a copy of this letter to indicate your acceptance of these terms. We look forward to welcoming you to the Vikisol family.</p>"
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">"
-                + "<tr><td width=\"50%\" style=\"font-size:11px;\">For <b>Vikisol Technologies Pvt Ltd</b><br/><br/><br/>_____________________<br/>Authorized Signatory</td>"
-                + "<td width=\"50%\" style=\"font-size:11px;\">Accepted by<br/><br/><br/>_____________________<br/>" + candidateName + "</td></tr>"
-                + "</table>"
-                + "</div>"
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#f4f4f5;padding:16px 40px;color:#888;font-size:9px;text-align:center;\">"
-                + "Vikisol Technologies Pvt Ltd &#183; " + supportEmail + " &#183; www.vikisol.in"
-                + "</td></tr></table>"
-                + "</body></html>";
-    }
-
     public void sendHikeLetterEmail(String email, String name, BigDecimal oldCtc, BigDecimal newCtc,
                                      Map<String, BigDecimal> ctcBreakup, LocalDate effectiveDate, String reason) {
         String subject = "Congratulations " + name + " - Your Salary Revision at Vikisol";
@@ -532,6 +471,26 @@ public class EmailService {
                 + "<p style=\"margin:0 0 20px;color:#444;\">This link expires in 24 hours. If it expires, ask HR to resend your activation email.</p>"
                 + signatureBlock("Regards", "Human Resources");
         sendHtmlEmail(personalEmail, subject, brandedTemplate("Activate your Vikisol One account", body), EmailLog.Category.WELCOME, null);
+    }
+
+    // Forgot Password - always sent to the employee's PERSONAL email, never the official company
+    // mailbox, even though the employee identified themselves by official email on the Forgot
+    // Password screen. officialEmail is shown in the email body purely as a reminder of what to
+    // log back in with after resetting.
+    public void sendPasswordResetEmail(String personalEmail, String name, String officialEmail, String resetLink) {
+        String subject = "Reset Your Vikisol HRMS Password";
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Reset Your Vikisol HRMS Password</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Hello " + name + ",</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">We received a request to reset the password for your Vikisol HRMS account (<b>" + officialEmail + "</b>).</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px;\">"
+                + "<tr><td align=\"center\">"
+                + "<a href=\"" + resetLink + "\" style=\"display:inline-block;background:#FF6A00;color:#fff;text-decoration:none;font-weight:600;padding:12px 28px;border-radius:8px;\">Reset Password</a>"
+                + "</td></tr></table>"
+                + "<p style=\"margin:0 0 8px;color:#444;\">This link expires in 30 minutes.</p>"
+                + "<p style=\"margin:0 0 20px;color:#888;font-size:13px;\">If you did not request this, you can safely ignore this email - your password will not be changed.</p>"
+                + signatureBlock("Regards", "Human Resources");
+        sendHtmlEmail(personalEmail, subject, brandedTemplate("Reset your Vikisol HRMS password", body), EmailLog.Category.OTHER, null);
     }
 
     public void sendAssessmentResultEmail(String email, String name, String testName, double score, double maxScore, boolean passed) {

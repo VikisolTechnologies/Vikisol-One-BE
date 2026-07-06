@@ -57,6 +57,9 @@ public class OffboardingService {
     private final NotificationService notificationService;
     private final EmailService emailService;
     private final AssetService assetService;
+    private final com.vikisol.one.common.service.PdfService pdfService;
+    private final com.vikisol.one.settings.repository.CompanySettingsRepository companySettingsRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
@@ -288,19 +291,17 @@ public class OffboardingService {
     public byte[] buildExitPackageZip(UUID employeeId) {
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new EntityNotFoundException("Employee not found"));
-        List<Document> documents = collectExitDocuments(employeeId);
-        if (documents.isEmpty()) {
+        List<NamedPdf> pdfs = collectExitPackagePdfs(employeeId, employee);
+        if (pdfs.isEmpty()) {
             throw new BadRequestException("No generated documents are available yet for this employee's exit package");
         }
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              ZipOutputStream zos = new ZipOutputStream(baos)) {
             Set<String> usedNames = new HashSet<>();
-            for (Document doc : documents) {
-                byte[] bytes = fetchBytes(doc.getFileUrl());
-                if (bytes == null) continue;
-                String name = uniqueName(usedNames, safeFileName(doc));
+            for (NamedPdf pdf : pdfs) {
+                String name = uniqueName(usedNames, pdf.fileName());
                 zos.putNextEntry(new ZipEntry(name));
-                zos.write(bytes);
+                zos.write(pdf.bytes());
                 zos.closeEntry();
             }
             zos.finish();
@@ -308,6 +309,127 @@ public class OffboardingService {
         } catch (Exception e) {
             throw new RuntimeException("Could not build exit package zip for " + employee.getEmployeeId(), e);
         }
+    }
+
+    // Single merged PDF alternative to the ZIP - same document set, concatenated in the same
+    // order via PDFBox's merger (already a transitive dependency of openhtmltopdf-pdfbox).
+    @Transactional(readOnly = true)
+    public byte[] buildExitPackageMergedPdf(UUID employeeId) {
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new EntityNotFoundException("Employee not found"));
+        List<NamedPdf> pdfs = collectExitPackagePdfs(employeeId, employee);
+        if (pdfs.isEmpty()) {
+            throw new BadRequestException("No generated documents are available yet for this employee's exit package");
+        }
+        try (ByteArrayOutputStream merged = new ByteArrayOutputStream()) {
+            org.apache.pdfbox.multipdf.PDFMergerUtility merger = new org.apache.pdfbox.multipdf.PDFMergerUtility();
+            for (NamedPdf pdf : pdfs) {
+                merger.addSource(new java.io.ByteArrayInputStream(pdf.bytes()));
+            }
+            merger.setDestinationStream(merged);
+            merger.mergeDocuments(org.apache.pdfbox.io.MemoryUsageSetting.setupMainMemoryOnly());
+            return merged.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Could not build merged exit package PDF for " + employee.getEmployeeId(), e);
+        }
+    }
+
+    private record NamedPdf(String fileName, byte[] bytes) {}
+
+    // The full exit package: every generated letter/payslip/certificate on file for this employee
+    // (collectExitDocuments), plus three system-generated summary PDFs that aren't "documents" in
+    // the Document Engine sense (no branding/versioning needed - they're internal audit artifacts,
+    // not letters) - the Exit Checklist status, the Asset Clearance subset of it, and the BGV
+    // reference-contact sheet (from the same Company Settings BGV contacts used on Experience/
+    // Relieving letters). Exit Interview Summary is deliberately NOT included - no exit-interview
+    // module exists yet in this system, so there's nothing real to attach.
+    private List<NamedPdf> collectExitPackagePdfs(UUID employeeId, Employee employee) {
+        List<NamedPdf> pdfs = new ArrayList<>();
+        Set<String> usedNames = new HashSet<>();
+        for (Document doc : collectExitDocuments(employeeId)) {
+            byte[] bytes = fetchBytes(doc.getFileUrl());
+            if (bytes == null) continue;
+            pdfs.add(new NamedPdf(uniqueName(usedNames, safeFileName(doc)), bytes));
+        }
+        caseRepository.findTopByEmployeeIdOrderByCreatedAtDesc(employeeId).ifPresent(offboardingCase -> {
+            List<OffboardingChecklistItem> items = checklistRepository.findByOffboardingCaseIdOrderByCategoryAsc(offboardingCase.getId());
+            if (!items.isEmpty()) {
+                pdfs.add(new NamedPdf(uniqueName(usedNames, "Exit_Checklist.pdf"),
+                        pdfService.renderPdf(checklistSummaryHtml("Exit Checklist", employee, items))));
+                List<OffboardingChecklistItem> assetItems = items.stream()
+                        .filter(i -> i.getCategory() == OffboardingChecklistItem.Category.IT).toList();
+                if (!assetItems.isEmpty()) {
+                    pdfs.add(new NamedPdf(uniqueName(usedNames, "Asset_Clearance.pdf"),
+                            pdfService.renderPdf(checklistSummaryHtml("Asset Clearance", employee, assetItems))));
+                }
+            }
+        });
+        List<Map<String, Object>> bgvContacts = loadBgvContacts();
+        if (!bgvContacts.isEmpty()) {
+            pdfs.add(new NamedPdf(uniqueName(usedNames, "BGV_Contact_Sheet.pdf"), pdfService.renderPdf(bgvContactSheetHtml(bgvContacts))));
+        }
+        return pdfs;
+    }
+
+    // Stored by SettingsPage.jsx's BgvContactsSettings component as a generic company-settings row
+    // (category BGV, literal key "contacts" - see SettingsService.updateSetting, which persists
+    // whatever key string the frontend sends, not a prefixed one).
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> loadBgvContacts() {
+        return companySettingsRepository.findByKey("contacts")
+                .map(s -> {
+                    try {
+                        return (List<Map<String, Object>>) (List<?>) objectMapper.readValue(s.getValue(), List.class);
+                    } catch (Exception e) {
+                        return List.<Map<String, Object>>of();
+                    }
+                })
+                .orElse(List.of());
+    }
+
+    private String checklistSummaryHtml(String title, Employee employee, List<OffboardingChecklistItem> items) {
+        StringBuilder rows = new StringBuilder();
+        for (OffboardingChecklistItem item : items) {
+            rows.append("<tr>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(item.getCategory()).append("</td>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(escapeHtml(item.getLabel())).append("</td>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(item.getStatus()).append("</td>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(item.getCompletedAt() != null ? item.getCompletedAt().toLocalDate() : "-").append("</td>")
+                    .append("</tr>");
+        }
+        return "<html><body style=\"font-family:Helvetica,Arial,sans-serif;font-size:12px;\">"
+                + "<h2 style=\"margin:0 0 4px;\">" + title + "</h2>"
+                + "<p style=\"color:#777;margin:0 0 16px;\">" + escapeHtml(employeeName(employee)) + " (" + employee.getEmployeeId() + ")</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr style=\"background:#f5f5f5;\">"
+                + "<th style=\"text-align:left;padding:6px 8px;\">Category</th><th style=\"text-align:left;padding:6px 8px;\">Item</th>"
+                + "<th style=\"text-align:left;padding:6px 8px;\">Status</th><th style=\"text-align:left;padding:6px 8px;\">Completed</th></tr>"
+                + rows + "</table></body></html>";
+    }
+
+    private String bgvContactSheetHtml(List<Map<String, Object>> contacts) {
+        StringBuilder rows = new StringBuilder();
+        for (Map<String, Object> c : contacts) {
+            if (Boolean.FALSE.equals(c.get("active"))) continue;
+            rows.append("<tr>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(escapeHtml(str(c.get("name")))).append("</td>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(escapeHtml(str(c.get("designation")))).append("</td>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(escapeHtml(str(c.get("email")))).append("</td>")
+                    .append("<td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">").append(escapeHtml(str(c.get("mobile")))).append("</td>")
+                    .append("</tr>");
+        }
+        return "<html><body style=\"font-family:Helvetica,Arial,sans-serif;font-size:12px;\">"
+                + "<h2 style=\"margin:0 0 4px;\">Background Verification Contacts</h2>"
+                + "<p style=\"color:#777;margin:0 0 16px;\">For employment verification enquiries from future employers.</p>"
+                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr style=\"background:#f5f5f5;\">"
+                + "<th style=\"text-align:left;padding:6px 8px;\">Name</th><th style=\"text-align:left;padding:6px 8px;\">Designation</th>"
+                + "<th style=\"text-align:left;padding:6px 8px;\">Email</th><th style=\"text-align:left;padding:6px 8px;\">Mobile</th></tr>"
+                + rows + "</table></body></html>";
+    }
+
+    private static String str(Object o) { return o != null ? o.toString() : ""; }
+
+    private static String escapeHtml(String s) {
+        return s == null ? "" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     @Transactional
@@ -319,13 +441,12 @@ public class OffboardingService {
         if (toEmail == null || toEmail.isBlank()) {
             throw new BadRequestException("Employee has no email address to send the exit package to");
         }
-        List<Document> documents = collectExitDocuments(employeeId);
-        List<EmailService.Attachment> attachments = new ArrayList<>();
-        for (Document doc : documents) {
-            byte[] bytes = fetchBytes(doc.getFileUrl());
-            if (bytes == null) continue;
-            attachments.add(new EmailService.Attachment(safeFileName(doc), bytes));
-        }
+        // Same document set as the ZIP/merged-PDF downloads (collectExitPackagePdfs), so the
+        // emailed attachments never drift out of sync with what HR can download.
+        List<NamedPdf> pdfs = collectExitPackagePdfs(employeeId, employee);
+        List<EmailService.Attachment> attachments = pdfs.stream()
+                .map(p -> new EmailService.Attachment(p.fileName(), p.bytes()))
+                .toList();
         emailService.sendExitPackageEmail(toEmail, employeeName(employee), attachments);
         auditService.record("Exit Package Emailed", employee.getEmployeeId(),
                 attachments.size() + " document(s) sent to " + toEmail);

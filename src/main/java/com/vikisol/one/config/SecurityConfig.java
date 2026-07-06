@@ -59,6 +59,18 @@ public class SecurityConfig {
                         // their account. Guarded by the token itself (random, single-use, expiring),
                         // not by session auth.
                         .requestMatchers("/auth/activate", "/auth/activate/**").permitAll()
+                        // Forgot Password is necessarily public too (the employee is, by definition,
+                        // locked out) - guarded the same way as activation: a random, single-use,
+                        // expiring token, not a session.
+                        .requestMatchers("/auth/forgot-password", "/auth/reset-password", "/auth/reset-password/**").permitAll()
+                        // The Login page needs to know which login methods are enabled/available
+                        // before the employee is authenticated - PUT stays CEO/Admin-only via
+                        // AuthSettingsController's own @PreAuthorize.
+                        .requestMatchers(HttpMethod.GET, "/auth-settings").permitAll()
+                        // Unauthenticated by necessity (clicked from the Login page before any
+                        // session exists) - always returns a clear "not configured" error today
+                        // since no real Azure AD credentials exist in this deployment.
+                        .requestMatchers("/auth/microsoft/**").permitAll()
                         // Called by the separately-deployed Vikisol Arena app, which has no HRLMS
                         // user session - auth is enforced inside the controller via a shared API key.
                         .requestMatchers("/assessments/webhook").permitAll()

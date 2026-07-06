@@ -98,6 +98,20 @@ public class OffboardingController {
                 .body(new ByteArrayResource(zipBytes));
     }
 
+    @GetMapping("/employees/{employeeId}/offboarding/exit-package/merged-pdf")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ByteArrayResource> downloadExitPackageMergedPdf(@PathVariable UUID employeeId) {
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new EntityNotFoundException("Employee not found"));
+        byte[] pdfBytes = offboardingService.buildExitPackageMergedPdf(employeeId);
+        String fileName = "ExitPackage_" + employee.getEmployeeId() + ".pdf";
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(fileName).build().toString())
+                .body(new ByteArrayResource(pdfBytes));
+    }
+
     @PostMapping("/employees/{employeeId}/offboarding/exit-package/email")
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> emailExitPackage(

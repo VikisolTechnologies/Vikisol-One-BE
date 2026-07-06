@@ -116,21 +116,20 @@ public class DataSeeder implements CommandLineRunner {
         // Always run — idempotent, links any user that lacks an Employee record
         seedEmployeesForUsers();
 
-        // Always run — idempotent, only inserts a default template for a document type if none
-        // exists yet. Lets Document Studio ship with working templates out of the box instead of
-        // every document type failing with "no published template" until an admin manually creates one.
-        // Must run BEFORE seedDocumentTemplates(), which queries by status - the 4 templates
-        // seeded before the status/templateGroupId columns existed would otherwise be invisible.
-        migrateLegacyDocumentTemplates();
-        seedDocumentTemplates();
-        seedTemplateVariables();
         // Document templates are business content (legal letter text), not application config -
-        // they must never be silently auto-created/changed in production. Auto-seed only in
-        // non-production profiles for local/dev convenience; in prod, CEO/HR Manager must trigger
-        // this deliberately via POST /admin/document-templates/seed-offer-letter (see
-        // AdminTemplateSeedController), going through the exact same createDraft()/publish() flow
-        // so it's still versioned/auditable, just never automatic.
-        if (!environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"))) {
+        // they must never be silently auto-created/changed in production, even the "default"
+        // ones seeded here. Auto-seed only in non-production profiles for local/dev convenience
+        // (so Document Studio has working templates out of the box in dev without manual setup);
+        // in prod, CEO/HR Manager must trigger seeding deliberately via the
+        // POST /document-templates/seed-{type} endpoints, which still land through the same
+        // audited path these dev-only calls use.
+        boolean isProd = environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"));
+        if (!isProd) {
+            // Must run BEFORE seedDocumentTemplates(), which queries by status - the 4 templates
+            // seeded before the status/templateGroupId columns existed would otherwise be invisible.
+            migrateLegacyDocumentTemplates();
+            seedDocumentTemplates();
+            seedTemplateVariables();
             seedOfferLetterTemplate();
         }
 
@@ -324,6 +323,14 @@ public class DataSeeder implements CommandLineRunner {
     // Backfills templateGroupId/status on the 4 template rows created before those columns
     // existed (Offer/Experience/Relieving-adjacent seed data) - without this they'd have
     // status=null and silently disappear from every "find the PUBLISHED template" query.
+    // Public so AdminTemplateSeedController/DocumentTemplateController can trigger the whole
+    // default-template pack deliberately in production (see the profile guard in run() above).
+    public void seedDefaultDocumentTemplates() {
+        migrateLegacyDocumentTemplates();
+        seedDocumentTemplates();
+        seedTemplateVariables();
+    }
+
     private void migrateLegacyDocumentTemplates() {
         List<DocumentTemplate> legacy = documentTemplateRepository.findAll().stream()
                 .filter(t -> t.getStatus() == null || t.getTemplateGroupId() == null || t.getTemplateGroupId().isBlank())

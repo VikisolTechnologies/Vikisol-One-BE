@@ -86,4 +86,16 @@ public class DocumentTemplateController {
         dataSeeder.seedOfferLetterTemplate();
         return ResponseEntity.ok(new ApiResponse<>(true, "Offer Letter template seeded (no-op if it already existed)", null));
     }
+
+    // Same rationale as seed-offer-letter, but for the rest of the default template pack
+    // (Experience/Relieving/Salary Certificate/Payslip/Appointment/Joining/Confirmation/
+    // Promotion/Salary Revision/Resignation Acceptance/Termination/Warning/Internship/Contract/
+    // Leave Approval-Rejection/Employment Verification, plus registered template variables) -
+    // needed for a fresh production environment where these were never seeded, since they're now
+    // also gated to non-prod auto-seeding. No-op per type if it already exists.
+    @PostMapping("/seed-defaults")
+    public ResponseEntity<ApiResponse<Void>> seedDefaults() {
+        dataSeeder.seedDefaultDocumentTemplates();
+        return ResponseEntity.ok(new ApiResponse<>(true, "Default document templates seeded (no-op for any type that already existed)", null));
+    }
 }

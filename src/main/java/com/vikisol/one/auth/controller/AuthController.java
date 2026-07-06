@@ -33,6 +33,27 @@ public class AuthController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Password changed successfully", null));
     }
 
+    // Step 1 of Forgot Password: employee supplies only their official company email. Always
+    // responds with the same generic success message regardless of whether a matching account
+    // exists (see AuthService.forgotPassword) - never reveal which official emails are registered.
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        authService.forgotPassword(request);
+        return ResponseEntity.ok(new ApiResponse<>(true,
+                "If this official email is registered, a password reset link has been sent to the linked personal email on file.", null));
+    }
+
+    @GetMapping("/reset-password/{token}")
+    public ResponseEntity<ApiResponse<ActivationTokenInfo>> inspectResetToken(@PathVariable String token) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Reset token checked", authService.inspectResetToken(token)));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Password updated successfully", null));
+    }
+
     @GetMapping("/activate/{token}")
     public ResponseEntity<ApiResponse<ActivationTokenInfo>> inspectActivationToken(@PathVariable String token) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Activation token checked", authService.inspectActivationToken(token)));

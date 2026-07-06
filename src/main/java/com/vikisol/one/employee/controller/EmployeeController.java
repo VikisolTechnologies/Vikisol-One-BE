@@ -34,6 +34,7 @@ public class EmployeeController {
     private final EmployeeService employeeService;
     private final EmployeeTimelineService employeeTimelineService;
     private final EmployeeDashboardService employeeDashboardService;
+    private final com.vikisol.one.employee.service.AccountStatusService accountStatusService;
     private final EmployeeRepository employeeRepository;
 
     @GetMapping
@@ -203,5 +204,19 @@ public class EmployeeController {
                 .orElse(false);
         if (!privileged && !isSelf) throw new BadRequestException("You do not have permission to view this employee's dashboard");
         return ResponseEntity.ok(new ApiResponse<>(true, "Dashboard summary retrieved", employeeDashboardService.getSummary(employeeId)));
+    }
+
+    // Self-or-privileged, same pattern as dashboard-summary above - backs the Employee Profile's
+    // "Linked Accounts" panel.
+    @GetMapping("/{employeeId}/account-status")
+    public ResponseEntity<ApiResponse<com.vikisol.one.employee.dto.AccountStatusResponse>> getAccountStatus(
+            @PathVariable UUID employeeId, @AuthenticationPrincipal UserPrincipal principal) {
+        boolean privileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isSelf = employeeRepository.findById(employeeId)
+                .map(e -> e.getUser() != null && e.getUser().getId().equals(principal.getId()))
+                .orElse(false);
+        if (!privileged && !isSelf) throw new BadRequestException("You do not have permission to view this employee's account status");
+        return ResponseEntity.ok(new ApiResponse<>(true, "Account status retrieved", accountStatusService.getAccountStatus(employeeId)));
     }
 }

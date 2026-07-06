@@ -30,7 +30,7 @@ public class CompanySettings extends BaseEntity {
     private DataType dataType = DataType.STRING;
 
     public enum SettingsCategory {
-        GENERAL, LEAVE, ATTENDANCE, PAYROLL, NOTIFICATION, BGV
+        GENERAL, LEAVE, ATTENDANCE, PAYROLL, NOTIFICATION, BGV, AUTH
     }
 
     public enum DataType {

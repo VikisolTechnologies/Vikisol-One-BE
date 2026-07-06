@@ -5,6 +5,8 @@ import com.vikisol.one.security.RoleEnum;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "users")
 @Data
@@ -35,4 +37,12 @@ public class User extends BaseEntity {
 
     @Builder.Default
     private boolean accountNonLocked = true;
+
+    // Auth/security audit fields - all nullable with no @Builder.Default and no nullable=false, so
+    // adding them to this already-populated table is a safe Hibernate ddl-auto=update migration
+    // (existing rows just get NULL, never a rejected NOT-NULL ALTER TABLE).
+    private Instant lastLoginAt;
+    private Instant passwordChangedAt;
+    private Instant lockedUntil;
+    private Integer failedLoginCount;
 }

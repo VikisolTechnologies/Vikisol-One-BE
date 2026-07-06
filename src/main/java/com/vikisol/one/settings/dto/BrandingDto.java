@@ -29,6 +29,14 @@ public record BrandingDto(
         String primaryColor,
         String secondaryColor,
         String fontFamily,
-        String defaultMargin
+        String defaultMargin,
+        String tagline,
+        // Company-wide document defaults (used by Offer/Appointment/Joining letters etc.) so
+        // these aren't hardcoded per-caller - editable on the Company Branding admin page.
+        String officeLocation,
+        String workStartTime,
+        String workEndTime,
+        String workDays,
+        String orientationContact
 ) {
 }

@@ -25,7 +25,8 @@ public class BrandingController {
     }
 
     // Keys: COMPANY_NAME, COMPANY_ADDRESS, GST, PAN, WEBSITE, PHONE, EMAIL, LOGO_URL,
-    // CEO_SIGNATURE_URL, HR_SIGNATURE_URL, COMPANY_SEAL_URL, CEO_NAME, HR_NAME
+    // CEO_SIGNATURE_URL, HR_SIGNATURE_URL, COMPANY_SEAL_URL, CEO_NAME, HR_NAME, TAGLINE,
+    // OFFICE_LOCATION, WORK_START_TIME, WORK_END_TIME, WORK_DAYS, ORIENTATION_CONTACT
     @PutMapping
     @PreAuthorize("hasAnyRole('CEO','ADMIN')")
     public ResponseEntity<ApiResponse<BrandingDto>> updateBranding(@RequestBody Map<String, String> fields) {

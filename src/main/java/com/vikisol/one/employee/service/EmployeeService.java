@@ -69,12 +69,19 @@ public class EmployeeService {
     private final FileStorageService fileStorageService;
     private final DocumentService documentService;
     private final DocumentGenerationService documentGenerationService;
+    private final com.vikisol.one.settings.service.BrandingService brandingService;
     private final OffboardingService offboardingService;
 
     @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
 
-    private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
+    // Alphanumeric only - this same generator also produces the activation-link token, which gets
+    // embedded raw (unencoded) into a URL as `?token=...`. A `#` starts the URL fragment and
+    // silently truncates the query string there, and `&`/`+`/`%` etc. have their own query-string
+    // meaning - any of the old charset's `!@#$` could corrupt the link. Real bug, confirmed live:
+    // an activation link containing `#` and `$` was rejected as "invalid" because the frontend
+    // only ever received the token text before the `#`.
+    private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Duration ACTIVATION_TOKEN_TTL = Duration.ofHours(24);
 
@@ -361,7 +368,9 @@ public class EmployeeService {
 
     // Generates (or regenerates) an existing employee's official offer letter PDF from their
     // current, approved record - designation, CTC breakup, joining date, reporting manager - and
-    // stores it as a document. Reuses the exact same PDF template used at hiring time.
+    // stores it as a document. Uses the same Document Studio engine + OfferLetterFieldsHelper as
+    // RecruitmentService.approveSelection(), replacing the previous hardcoded
+    // EmailService.buildOfferLetterPdfHtml() bypass of the template engine.
     public String generateOfferLetter(UUID employeeId) {
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
@@ -369,30 +378,45 @@ public class EmployeeService {
             throw new RuntimeException("This employee has no CTC/salary details on file yet");
         }
 
+        BigDecimal basic = nvl(employee.getBasicSalary());
+        BigDecimal hra = nvl(employee.getHra());
+        BigDecimal conveyance = nvl(employee.getConveyanceAllowance());
+        BigDecimal medical = nvl(employee.getMedicalAllowance());
+        BigDecimal special = nvl(employee.getSpecialAllowance());
+        BigDecimal custom = nvl(employee.getCustomAllowance());
         Map<String, BigDecimal> breakup = Map.of(
-                "basicSalary", nvl(employee.getBasicSalary()),
-                "hra", nvl(employee.getHra()),
-                "conveyanceAllowance", nvl(employee.getConveyanceAllowance()),
-                "medicalAllowance", nvl(employee.getMedicalAllowance()),
-                "specialAllowance", nvl(employee.getSpecialAllowance()),
-                "customAllowance", nvl(employee.getCustomAllowance())
+                "basicSalary", basic,
+                "hra", hra,
+                "conveyanceAllowance", conveyance,
+                "medicalAllowance", medical,
+                "specialAllowance", special,
+                "customAllowance", custom,
+                "grossSalary", basic.add(hra).add(conveyance).add(medical).add(special).add(custom)
         );
 
-        String reportingManagerName = employee.getReportingManagerId() != null
-                ? employeeRepository.findById(employee.getReportingManagerId())
-                        .map(m -> m.getFirstName() + " " + m.getLastName())
-                        .orElse(null)
-                : null;
+        String reportingManagerTitle = null;
+        String reportingManagerName = null;
+        if (employee.getReportingManagerId() != null) {
+            Employee manager = employeeRepository.findById(employee.getReportingManagerId()).orElse(null);
+            if (manager != null) {
+                reportingManagerName = manager.getFirstName() + " " + manager.getLastName();
+                reportingManagerTitle = manager.getDesignation() != null ? manager.getDesignation().getTitle() : null;
+            }
+        }
 
         String fullName = employee.getFirstName() + " " + employee.getLastName();
         String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "";
+        String salutation = employee.getGender() == Employee.Gender.FEMALE ? "Ms."
+                : employee.getGender() == Employee.Gender.MALE ? "Mr." : null;
+        BigDecimal pt = payrollService.getConfigAsBigDecimal("PROFESSIONAL_TAX");
 
-        String pdfHtml = emailService.buildOfferLetterPdfHtml(
-                fullName, employee.getEmployeeId(), designationTitle,
-                employee.getCtc(), breakup,
+        Map<String, String> fields = com.vikisol.one.doctemplate.service.OfferLetterFieldsHelper.build(
+                fullName, designationTitle, salutation,
                 employee.getDateOfJoining() != null ? employee.getDateOfJoining() : java.time.LocalDate.now(),
-                reportingManagerName, java.time.LocalDate.now());
-        byte[] pdf = pdfService.renderPdf(pdfHtml);
+                reportingManagerTitle, reportingManagerName,
+                breakup, employee.getCtc(), pt, brandingService.getBranding());
+
+        byte[] pdf = documentGenerationService.render(Document.DocumentType.OFFER_LETTER, fields);
 
         String storageFileName = "Offer_Letter_" + employee.getEmployeeId() + ".pdf";
         String downloadFileName = "Offer_Letter_%s_%s_%s.pdf".formatted(
