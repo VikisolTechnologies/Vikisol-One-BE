@@ -226,6 +226,11 @@ public class ProjectService {
         r.setStatus(p.getStatus());
         r.setPriority(p.getPriority());
         r.setProjectManagerId(p.getProjectManagerId());
+        if (p.getProjectManagerId() != null) {
+            employeeRepository.findById(p.getProjectManagerId())
+                    .ifPresent(mgr -> r.setProjectManagerName(mgr.getFirstName() + " " + mgr.getLastName()));
+        }
+        r.setTeamSize((int) projectMemberRepository.countByProjectIdAndIsActiveTrue(p.getId()));
         r.setBudget(callerIsCeo() ? p.getBudget() : null);
         r.setActive(p.isActive());
         r.setCreatedAt(p.getCreatedAt());

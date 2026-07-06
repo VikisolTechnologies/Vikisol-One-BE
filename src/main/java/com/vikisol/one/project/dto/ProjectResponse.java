@@ -20,6 +20,8 @@ public class ProjectResponse {
     private Project.Status status;
     private Project.Priority priority;
     private UUID projectManagerId;
+    private String projectManagerName;
+    private int teamSize;
     private BigDecimal budget;
     private boolean isActive;
     private LocalDateTime createdAt;
