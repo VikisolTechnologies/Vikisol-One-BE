@@ -5,6 +5,7 @@ import com.vikisol.one.doctemplate.dto.DocumentTemplateRequest;
 import com.vikisol.one.doctemplate.dto.DocumentTemplateResponse;
 import com.vikisol.one.doctemplate.service.DocumentTemplateService;
 import com.vikisol.one.document.entity.Document;
+import com.vikisol.one.config.DataSeeder;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class DocumentTemplateController {
 
     private final DocumentTemplateService templateService;
+    private final DataSeeder dataSeeder;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<DocumentTemplateResponse>>> listByType(@RequestParam Document.DocumentType type) {
@@ -72,5 +74,16 @@ public class DocumentTemplateController {
     @PutMapping("/{id}/archive")
     public ResponseEntity<ApiResponse<DocumentTemplateResponse>> archive(@PathVariable UUID id) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Template archived", templateService.archive(id)));
+    }
+
+    // Deliberate, human-triggered creation of the default Corporate Offer Letter template in
+    // production - templates are business content, so they're never auto-seeded on startup there
+    // (see DataSeeder.run()'s profile guard). This still goes through createDraft()/publish(),
+    // so it's the same audited, versioned path as anything authored directly in Document Studio.
+    // No-op (existsByDocumentType guard) if the template already exists.
+    @PostMapping("/seed-offer-letter")
+    public ResponseEntity<ApiResponse<Void>> seedOfferLetter() {
+        dataSeeder.seedOfferLetterTemplate();
+        return ResponseEntity.ok(new ApiResponse<>(true, "Offer Letter template seeded (no-op if it already existed)", null));
     }
 }

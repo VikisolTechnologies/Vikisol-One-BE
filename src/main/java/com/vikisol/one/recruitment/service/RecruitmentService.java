@@ -5,9 +5,9 @@ import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.common.service.FileModule;
 import com.vikisol.one.common.service.FileStorageService;
-import com.vikisol.one.common.service.PdfService;
 import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.designation.entity.Designation;
+import com.vikisol.one.doctemplate.service.DocumentGenerationService;
 import com.vikisol.one.document.dto.DocumentUploadRequest;
 import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.document.service.DocumentService;
@@ -63,9 +63,9 @@ public class RecruitmentService {
     private final EmployeeRepository employeeRepository;
     private final PayrollService payrollService;
     private final EmailService emailService;
-    private final PdfService pdfService;
     private final FileStorageService fileStorageService;
     private final DocumentService documentService;
+    private final DocumentGenerationService documentGenerationService;
     private final AuditService auditService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
@@ -453,20 +453,18 @@ public class RecruitmentService {
         candidate.setManagerRemarks(null);
         candidateRepository.save(candidate);
 
-        String reportingManagerName = candidate.getOfferedReportingManagerId() != null
-                ? employeeRepository.findById(candidate.getOfferedReportingManagerId())
-                        .map(m -> m.getFirstName() + " " + m.getLastName())
-                        .orElse(null)
+        Employee reportingManagerEmployee = candidate.getOfferedReportingManagerId() != null
+                ? employeeRepository.findById(candidate.getOfferedReportingManagerId()).orElse(null)
+                : null;
+        String reportingManagerName = reportingManagerEmployee != null
+                ? reportingManagerEmployee.getFirstName() + " " + reportingManagerEmployee.getLastName()
                 : null;
 
         String candidateFullName = candidate.getFirstName() + " " + candidate.getLastName();
         byte[] offerLetterPdf = null;
         try {
-            String pdfHtml = emailService.buildOfferLetterPdfHtml(
-                    candidateFullName, employee.employeeId(), employee.designationTitle(),
-                    candidate.getOfferedCtc(), breakup, candidate.getOfferedDateOfJoining(),
-                    reportingManagerName, LocalDate.now());
-            offerLetterPdf = pdfService.renderPdf(pdfHtml);
+            offerLetterPdf = documentGenerationService.render(Document.DocumentType.OFFER_LETTER,
+                    offerLetterFields(candidate, candidateFullName, employee, breakup, reportingManagerEmployee, reportingManagerName));
 
             String fileName = "Offer_Letter_" + employee.employeeId() + ".pdf";
             String fileUrl = fileStorageService.storeBytes(offerLetterPdf, fileName,
@@ -516,6 +514,64 @@ public class RecruitmentService {
                 breakup,
                 true
         );
+    }
+
+    // Builds the {{Placeholder}} field map for the Corporate Offer Letter template (see
+    // DataSeeder.seedOfferLetterTemplate) from real candidate/offer data - this is the one small
+    // caller DocumentGenerationService expects for a new document type, replacing the previous
+    // hardcoded EmailService.buildOfferLetterPdfHtml() bypass of the template engine.
+    private Map<String, String> offerLetterFields(Candidate candidate, String candidateFullName, EmployeeResponse employee,
+                                                    Map<String, BigDecimal> breakup, Employee reportingManagerEmployee,
+                                                    String reportingManagerName) {
+        Map<String, String> fields = new java.util.LinkedHashMap<>();
+        fields.put("EmployeeName", candidateFullName);
+        fields.put("Designation", employee.designationTitle() != null ? employee.designationTitle() : "");
+        fields.put("OfferDate", LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")));
+        fields.put("Salutation", "Mr./Ms.");
+        fields.put("MonthlySalary", breakup.get("grossSalary") != null ? breakup.get("grossSalary").toPlainString() : "");
+        fields.put("Location", "Hyderabad");
+        fields.put("ReportingManagerTitle", reportingManagerEmployee != null && reportingManagerEmployee.getDesignation() != null
+                ? reportingManagerEmployee.getDesignation().getTitle() : "Reporting Manager");
+        fields.put("ReportingManagerName", reportingManagerName != null ? reportingManagerName : "");
+        fields.put("WorkStartTime", "9:00 AM");
+        fields.put("WorkEndTime", "6:00 PM");
+        fields.put("WorkDays", "Monday to Friday");
+        fields.put("JoiningDate", candidate.getOfferedDateOfJoining() != null
+                ? candidate.getOfferedDateOfJoining().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")) : "");
+        fields.put("JoiningTime", "10:00 AM");
+        fields.put("OrientationContact", "the HR Department");
+        fields.put("AcceptanceDeadline", candidate.getOfferedDateOfJoining() != null
+                ? candidate.getOfferedDateOfJoining().minusDays(7).format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")) : "");
+
+        BigDecimal basic = breakup.getOrDefault("basicSalary", BigDecimal.ZERO);
+        BigDecimal hra = breakup.getOrDefault("hra", BigDecimal.ZERO);
+        BigDecimal special = breakup.getOrDefault("specialAllowance", BigDecimal.ZERO);
+        BigDecimal other = breakup.getOrDefault("customAllowance", BigDecimal.ZERO);
+        BigDecimal totalFixedMonthly = breakup.getOrDefault("grossSalary", BigDecimal.ZERO);
+        // computeCtcBreakup's "ctc" entry is the net-of-deductions annual figure (the annualCtc
+        // argument it was called with) - matches Annexure B's "Total CTC (A+B)" annual column.
+        BigDecimal totalCtcAnnual = breakup.getOrDefault("ctc", BigDecimal.ZERO);
+        BigDecimal pt = payrollService.getConfigAsBigDecimal("PROFESSIONAL_TAX");
+        putMonthlyAndAnnual(fields, "Basic", basic);
+        putMonthlyAndAnnual(fields, "HRA", hra);
+        putMonthlyAndAnnual(fields, "SpecialAllowance", special);
+        putMonthlyAndAnnual(fields, "OtherAllowance", other);
+        putMonthlyAndAnnual(fields, "TotalFixed", totalFixedMonthly);
+        fields.put("PTMonthly", pt.toPlainString());
+        fields.put("PTAnnual", pt.multiply(BigDecimal.valueOf(ANNUAL_MONTHS)).toPlainString());
+        // Total CTC monthly = net-of-PT monthly figure (totalCtcAnnual / 12), not the gross fixed
+        // salary - the source PDFs show this as Total Fixed minus PT (e.g. 42,000 - 200 for one
+        // real offer), not the pre-deduction gross.
+        fields.put("TotalCtcMonthly", totalCtcAnnual.divide(BigDecimal.valueOf(ANNUAL_MONTHS), 2, java.math.RoundingMode.HALF_UP).toPlainString());
+        fields.put("TotalCtcAnnual", totalCtcAnnual.toPlainString());
+        return fields;
+    }
+
+    private static final int ANNUAL_MONTHS = 12;
+
+    private void putMonthlyAndAnnual(Map<String, String> fields, String prefix, BigDecimal monthlyValue) {
+        fields.put(prefix + "Monthly", monthlyValue.toPlainString());
+        fields.put(prefix + "Annual", monthlyValue.multiply(BigDecimal.valueOf(ANNUAL_MONTHS)).toPlainString());
     }
 
     /**

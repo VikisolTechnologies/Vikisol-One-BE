@@ -7,10 +7,12 @@ import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
 import com.vikisol.one.designation.repository.DesignationRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vikisol.one.doctemplate.dto.DocumentTemplateRequest;
 import com.vikisol.one.doctemplate.entity.DocumentTemplate;
 import com.vikisol.one.doctemplate.entity.TemplateVariable;
 import com.vikisol.one.doctemplate.repository.DocumentTemplateRepository;
 import com.vikisol.one.doctemplate.repository.TemplateVariableRepository;
+import com.vikisol.one.doctemplate.service.DocumentTemplateService;
 import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
@@ -27,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -54,7 +57,9 @@ public class DataSeeder implements CommandLineRunner {
     private final ScheduledTasks scheduledTasks;
     private final DocumentTemplateRepository documentTemplateRepository;
     private final TemplateVariableRepository templateVariableRepository;
+    private final DocumentTemplateService documentTemplateService;
     private final ObjectMapper objectMapper;
+    private final Environment environment;
 
     @Override
     @Transactional
@@ -119,6 +124,15 @@ public class DataSeeder implements CommandLineRunner {
         migrateLegacyDocumentTemplates();
         seedDocumentTemplates();
         seedTemplateVariables();
+        // Document templates are business content (legal letter text), not application config -
+        // they must never be silently auto-created/changed in production. Auto-seed only in
+        // non-production profiles for local/dev convenience; in prod, CEO/HR Manager must trigger
+        // this deliberately via POST /admin/document-templates/seed-offer-letter (see
+        // AdminTemplateSeedController), going through the exact same createDraft()/publish() flow
+        // so it's still versioned/auditable, just never automatic.
+        if (!environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"))) {
+            seedOfferLetterTemplate();
+        }
 
         // initializeYearlyLeaveBalances() only ran via @Scheduled(cron = "0 0 0 1 1 *") - literally
         // only at midnight Jan 1st. Since this app has never been running at that exact moment,
@@ -565,6 +579,29 @@ public class DataSeeder implements CommandLineRunner {
         return m;
     }
 
+    // signatureRole ("CEO"/"HR"/"FINANCE") is optional - when set, BlockRenderer renders the
+    // matching signature image from Company Branding above the name/underline.
+    private Map<String, Object> signatureWithRole(String leftLabel, String leftName, String leftRole,
+                                                    String rightLabel, String rightName, String rightRole) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("type", "signatureBlock");
+        m.put("leftLabel", leftLabel);
+        m.put("leftName", leftName);
+        m.put("leftSignatureRole", leftRole);
+        m.put("rightLabel", rightLabel);
+        m.put("rightName", rightName);
+        m.put("rightSignatureRole", rightRole);
+        return m;
+    }
+
+    private Map<String, Object> list(List<String> items) {
+        return Map.of("type", "list", "items", items);
+    }
+
+    private Map<String, Object> pageBreak() {
+        return Map.of("type", "pageBreak");
+    }
+
     private void seedBlockTemplate(Document.DocumentType type, String name, List<Map<String, Object>> blocks) {
         if (documentTemplateRepository.existsByDocumentType(type)) return;
         try {
@@ -581,6 +618,164 @@ public class DataSeeder implements CommandLineRunner {
         } catch (Exception e) {
             log.warn("Could not seed block template for {}: {}", type, e.getMessage());
         }
+    }
+
+    // The real, multi-page Vikisol Technologies Offer Letter (Senior Business Development Manager
+    // style corporate offer) - the previous state of the world had this content hardcoded, ad hoc,
+    // inside EmailService.buildOfferLetterPdfHtml, entirely bypassing the template engine (no
+    // branding, no versioning, no Document Studio visibility). This is now just data, authored
+    // through the same createDraft()/publish() flow as any admin-created template.
+    //
+    // Note on the two "CONFIDENTIALITY" / "CONFLICT OF INTEREST" sections below: the source
+    // document numbers them "3." and "4." a second time (after "3.PERFORMANCE AND APPRAISALS" and
+    // "4.SEPARATION OF EMPLOYMENT" already used those numbers) - that duplicate numbering is
+    // reproduced verbatim/intentionally, not a typo introduced here.
+    // Public so AdminTemplateSeedController can trigger this deliberately in production (see the
+    // profile guard in run() above) - same idempotent existsByDocumentType guard applies either way.
+    public void seedOfferLetterTemplate() {
+        if (documentTemplateRepository.existsByDocumentType(Document.DocumentType.OFFER_LETTER)) return;
+        try {
+            List<Map<String, Object>> blocks = new java.util.ArrayList<>();
+
+            // ── Page 1: the offer itself ──────────────────────────────────────────────
+            blocks.add(paragraph("{{OfferDate}}"));
+            blocks.add(paragraph("Dear {{Salutation}} {{EmployeeName}},"));
+            blocks.add(paragraph("Congratulations! We are pleased to confirm that you have been selected to work for Vikisol Technologies Pvt Ltd."));
+            blocks.add(paragraph("With reference to your application and the discussions we have had with you, we are pleased to appoint you as a \"{{Designation}}\" at the Vikisol Technologies Pvt Ltd, India on a base salary of RS.{{MonthlySalary}} /- per month plus other perquisites. You will be based in {{Location}}."));
+            blocks.add(paragraph("This position reports to {{ReportingManagerTitle}}, {{ReportingManagerName}}. Your working hours will be from [{{WorkStartTime}} to {{WorkEndTime}}], {{WorkDays}}."));
+            blocks.add(paragraph("Benefits for the position include:"));
+            blocks.add(list(List.of(
+                    "Annexure A details our comprehensive leave policies.",
+                    "Annexure B outlines a competitive pay structure, highlighting substantial position benefits."
+            )));
+            blocks.add(paragraph("We would like you to start work on {{JoiningDate}} at {{JoiningTime}}. Please report to, {{OrientationContact}}, for documentation and orientation. If this date is not acceptable, please contact to the organization mail ID immediately."));
+            blocks.add(paragraph("Please sign the enclosed copy of this letter and return it to me by {{AcceptanceDeadline}} to indicate your acceptance of this offer."));
+            blocks.add(paragraph("We are confident you will be able to make a significant contribution to the success of our Vikisol Technologies Pvt Ltd and look forward to working with you."));
+
+            // ── Page 2+: terms and conditions ─────────────────────────────────────────
+            blocks.add(pageBreak());
+            blocks.add(heading("Other Terms as follows:"));
+            blocks.add(heading("1.TERMS AND CONDITIONS"));
+            blocks.add(paragraph("(a) The Employee shall be paid his salary on the date specified in the Annexure-I of this Employment. Vikisol Technologies shall not be responsible for any delays in payment of salary to the Employee caused by his or her late submission of attendance."));
+            blocks.add(paragraph("(b) The Employee understands that it can deployed or instructed at any time to be transferred anywhere in India at any office/ premises of Vikisol Technologies and/or its concerned Client or at any office of the affiliate/associate member/ customer of the Client. The Employee further understands that failure by the Employee to accept and comply with any such transfer instruction/ request shall be sufficient grounds for termination of employment of the Employee by Vikisol Technologies."));
+            blocks.add(paragraph("(c) The Employee shall be governed by the rules and regulations regarding public holidays, timings, reporting structures, working hours, leave entitlement, discipline, security requirements, work ethics, targets etc. of the concerned Client and the location of such Vikisol Technologies Client (details of which are provided in Annexure-A(i)) where the Employee is deputed."));
+            blocks.add(paragraph("(d) The Employee shall not claim amount more than total salary including benefits, if any, other than those mentioned here in this Employment, unless revised, payable and communicated in writing to the Employee. The Employee understands that other than the amounts mentioned under Annexure-I it is not entitled to any other compensation or make any claims for any other amounts."));
+            blocks.add(paragraph("(e) The Employee agrees in writing to protect the confidentiality of the proprietary and/ or confidential information of both Vikisol Technologies and of the Client."));
+            blocks.add(paragraph("(f) The Employee shall execute any undertaking/ Employment provided by Vikisol Technologies that the Client may request of him/ her with regard to the maintenance of confidentiality of the intellectual property developed by the Employee or any work done by the Employee under the instructions of the Client during its deployment."));
+            blocks.add(paragraph("(g) The Employees acknowledges that they have no right to participate in Client's employee benefit plans (unless if specifically requested or permitted by the Client which shall be informed to the Employee by Vikisol Technologies)."));
+            blocks.add(paragraph("(h) For the issuance of any notice or communication of whatsoever kind, the Employee will be informed by email to personal email address/hand delivery/ courier/ registered post/ speed post or ordinary post at the address mentioned in the recitals of the Employment & in Annexure-I. In case of any change in the Employee's address or surname after marriage or any other change, the Employee will inform the concerned officials of Vikisol Technologies in writing to this effect within one (1) week of such change and get new address recorded in the Employee's personal record."));
+            blocks.add(paragraph("(i) The Employee understands & agrees that this Employment and the offer of employment by Vikisol Technologies to Employee is based on the foundation of the declaration provided by Employees in respect of the information/ details provided by Employee to Vikisol Technologies in his/her c.v./ resume which is taken and believed by Vikisol Technologies to be accurate as correct especially the information pertaining to age, educational qualifications, work experience, marital status & previous employment."));
+            blocks.add(paragraph("(j) In the event of any discovery/ information (by means of background check/ verification or otherwise) is made available or known to Vikisol Technologies with reference to any fraud, incorrect particulars/ statements, misinformation or suppression of any detail/ material fact on any account leading to the mistaken offer of employment having been made/acted upon by Vikisol Technologies, then this Employment shall stand automatically terminated with/without any reference/notice to the Employee with retrospective effect from the date of offer and the Employee shall be liable to make good all losses, expenses, damages caused to Vikisol Technologies on account of such acts or commissions as mentioned herein."));
+            blocks.add(paragraph("(k) The terms of this Employment and appointment of Employee shall be governed by the laws of India (including the Contract Labor Regulation & Abolition Act, 1970 & Rules 1971) and shall be co-terminus with terms of the Service appointment."));
+
+            blocks.add(heading("2.DUTIES"));
+            blocks.add(paragraph("The duties and responsibilities of the Employee may be changed or altered at any time by Vikisol Technologies at its sole discretion and the Employee agrees to abide by such altered or new duties and responsibilities. The Employee shall be duly informed of these changes by Vikisol Technologies. The Employee shall be committed to the work and meet the expectation of Vikisol Technologies and its Client. The Employee shall maintain high level of integrity, acumen and discipline in the work assigned to him/her by the Client. Under/ below-par performance shall invite necessary action against the Employee (including but not limited to issuance of warning letters/ notices or termination in repeated cases of under/ below-par performance). Employee shall provide all information (personal or otherwise) as may be required by Vikisol Technologies."));
+
+            blocks.add(heading("3.PERFORMANCE AND APPRAISALS"));
+            blocks.add(paragraph("The Employee shall endeavor to perform his or her duties efficiently and to the best of his or her ability. The appraisal/increment of the Employee depends on his/her performance and on other miscellaneous factors. The Employee may be called upon to undergo any training to upgrade himself/ herself to meet the requirements of the Client/Vikisol Technologies and failure to undergo/ complete such training or fulfil the requirements of such training may render the Employee unfit for continuation of its employment with Vikisol Technologies"));
+
+            blocks.add(heading("4.SEPARATION OF EMPLOYMENT"));
+            blocks.add(paragraph("(a) Vikisol Technologies reserves the right to terminate the employment of the Employee and this Employment at any time by giving Thirty (30) days' notice to the Employee or payment of salary/ wages amount in lieu of such notice period after completion of probationary period. During probationary period employee need to serve 30 days of notice period or salary will be of lieu. An employee serving his notice period is not eligible for any leave. In case the employee avails leave due to emergencies, the notice period gets extended to the extent of leave taken"));
+            blocks.add(paragraph("(b) In the event that the Employee decides to terminate his or her employment under this Employment with Vikisol Technologies, the Employee shall be required to give notice of 30 days in writing or payment of salary/ wages amount in lieu of such notice period. Full and Final settlement will take up to 45 days from the date of relieving, after collection of no due's certification and other formalities. Salary for due month will be part of Full and Final Settlement. An employee serving his notice period is not eligible for any leave. In case the employee avails leave due to emergencies, the notice period gets extended to the extent of leave taken"));
+            blocks.add(paragraph("(c) Subject to the laws of India (including any state specific laws), Vikisol Technologies reserves its right to terminate this Employment immediately without notice or without payment in lieu of notice in cases of (including but not limited to) neglect of duty, misconduct, drinking alcohol on duty, coming to office in a state of intoxication or under the influence of alcohol/ drugs/ recreational substances, drinking alcohol in office premises after duty, act of fraud, conduct not beneficial to the interests of Vikisol Technologies or the Client, absent or absconding from work or extension of leaves without approval/justifiable reasons, a breach of the terms and conditions of this Employment, a breach of the rules/ regulations/code of conduct, commission of any offence punishable under Indian Penal Code or any other law applicable in India."));
+            blocks.add(paragraph("(d) Deemed resignation: In case the Employee is absent from work for more than Seven (7) continuous working days without prior approval or justifiable reasons, the Employee shall be deemed to be absconding from duty and will be terminated from its employment with Vikisol Technologies. If any dues, will be forfeited from Vikisol Technologies."));
+            blocks.add(paragraph("(e) Leave without notice will be treated as Loss of pay"));
+
+            // Verbatim from the company's actual offer letter PDFs (Annexure/T&C boilerplate),
+            // not paraphrased. Numbering ("3."/"4.") duplicated intentionally to match the source
+            // document's own numbering quirk (it reuses "3." and "4." after PERFORMANCE AND
+            // APPRAISALS / SEPARATION OF EMPLOYMENT already used those numbers).
+            blocks.add(heading("3.CONFIDENTIALITY"));
+            blocks.add(paragraph("(a) The Employee must keep confidential all trade secrets and information which comes to his or her attention in circumstances where he or she know or ought to know that the information is to be treated as confidential."));
+            blocks.add(paragraph("(b) Confidential information includes:"));
+            blocks.add(list(List.of(
+                    "i, Technical information, plans and product specifications.",
+                    "ii, Employee records.",
+                    "iii, Business plans and forecasts.",
+                    "iv. Financial records, reports, accounts, and proposals.",
+                    "v. Vikisol Technologies/Client's intellectual property;",
+                    "vi. Clients lists, names of Client contacts and terms of trade with Client of Vikisol Technologies",
+                    "vii. Information on Client's suppliers or the Client customers or data Client would consider commercially valuable and/or secret of Vikisol Technologies",
+                    "viii. Telephone lists, policy documents, training documents, quality documents and any other Internally used information regarding the operations of the Client/Vikisol Technologies.",
+                    "ix. Employee's salary details and this Employment terms of Vikisol Technologies."
+            )));
+            blocks.add(paragraph("(c) The Employee must not remove information or copies of information from the Client's premises except where the Employee's employment specifically requires the same and/or where the Client has given written consent to Vikisol Technologies. The obligation of confidentiality exists both during the employment and after the employment ceases. Any breach of confidentiality shall be regarded as a serious misconduct for which the Employee may be dismissed or terminated forthwith without any notice or payment in lieu of notice. On the termination of the Employment, all papers, records and documents in the Employee's possession shall be returned to the Vikisol Technologies., and any other Information, documentation, record, photographs, designs, processes, systems, maps and installations which are deemed confidential by virtue of operations/ exclusive usage by Vikisol Technologies and leakage of the same to any unauthorized person, company, firm, organization etc. is detrimental to the interest of Vikisol Technologies."));
+            blocks.add(paragraph("(d) The Employee shall be duty bound to return all the property, data, information, record of the Vikisol Technologies and Client (confidential/ otherwise) while leaving/ ending employment and non-return of the same will amount of breach of confidentiality and render the Employee liable for legal action except for any saving available under the laws of India."));
+
+            blocks.add(heading("4.CONFLICT OF INTEREST"));
+            blocks.add(paragraph("(a) The Employee shall not, during the validity of this Employment (except with the knowledge and written consent of both the Client and Vikisol Technologies) engage themselves whether for reward or not, in any activity which may constitute a conflict of interest with the business of Vikisol Technologies. Conflict of interest will include any instances of the Employee while being under the employment of Vikisol Technologies also getting into any separate/independent arrangement with any third party (either by making use of employment with Vikisol Technologies, deployment & work duties with Client or otherwise) and drawing amounts of profit from such third party or holding an office of profit (i.e. dual employment) with such third party."));
+            blocks.add(paragraph("(b) The Employee shall not solicit or explore employment with the Client and/or any other organization/ third-party during the Employment period as mentioned in Annexure-I(including extended period, if any) and if found doing so, the same would constitute conflict of interest and render the Employee liable for legal action which may be termination and includes recovery for the loss and damages caused to Vikisol Technologies."));
+            blocks.add(paragraph("(c) In case the Employee is found indulged in any conduct, behavior and activity (as mentioned in this clause or anywhere else in the Employment or otherwise) either in a group or individually which is deemed to be against the interests of the Client and/ or Vikisol Technologies or which violates the terms of this Employment, then the same would constitute conflict of interest and render the Employee liable for legal action including termination of employment without notice or without payment in lieu of notice. Additionally, Vikisol Technologies and/ or the Client is also entitled to recover the loss or damages caused to Vikisol Technologies or the Client by such conduct/ actions of the Employee."));
+
+            blocks.add(heading("5.GOVERNING LAW & ASSENT TO ARBITRATION"));
+            blocks.add(paragraph("(a) This Employment shall always be governed by the laws of India (including state specific laws or rules) and all disputes shall be subject to jurisdiction of the courts in Bangalore, India."));
+            blocks.add(paragraph("(b) In case of any dispute regarding interpretation of the terms of this Employment whether during or after the period of this Employment , Vikisol Technologies upon receiving the point(s) of dispute shall upon being satisfied upon the existence of the same refer the same to an arbitrator who will be independent person and who upon his assuming charge after appointment, call both parties involved, to enquire, to investigate, hold appropriate proceedings and give his findings by way of an award as per the provisions of Arbitration and Conciliation Act. 1996 and amendments made thereafter. The award of the arbitrator shall be final and binding."));
+
+            blocks.add(heading("6.CODE OF CONDUCT"));
+            blocks.add(paragraph("While rendering services under this Employment, Employee shall ensure to conform to the highest level of professional standards and business ethics and shall abide by all the policies, processes, procedures, norms, rules and regulation of Vikisol Technologies or its Client. Indulgence in a behavior/conduct which may be prejudicial to the interests of Vikisol Technologies or its Client may warrant strict disciplinary action including but not limited to termination of Employment in accordance with clause 4 above."));
+
+            blocks.add(heading("7.ADHERENCE TO IT POLICY"));
+            blocks.add(paragraph("The Employee shall be responsible to follow the laid down IT policy of Vikisol Technologies and/ or its Client. The Employee will exercise due diligence and follow the correct laid down operating procedure while using all the hardware including Employee desktop/ laptop, printer, scanner, photo copier and any other electronic or non-electronic equipment provided to Employee. The Employee will use the allotted official Email ID for official purpose and official communication only and shall never transmit/communicate any text, message or communication in any form which may be classified as derogatory, defamatory, leading to harassment or sexual abuse to the Employee colleagues, sub-ordinates, seniors or any person having business interest in Vikisol Technologies or the Client or otherwise. The Employee shall also be responsible for the safety and security of the data including but not limited to various software installed/copied in the Employee allotted desktop/laptop or other electronic device for the period while such data/ hardware/ software is in Employee possession. The Employee shall return all the allotted data/ hardware/ software and other peripherals as the case may be to the Employee's supervisor, reporting manager immediately upon cessation of the Employee's employment with Vikisol Technologies and/ or upon end of deployment/ assignment with the Client. In case of any breach of this Employment and/ or breach of this clause in particular, Vikisol Technologies shall have exclusive right to withhold Employee's full & final settlement and issuance of relieving letter without prejudice to other rights and remedies available to them under and subject to the laws of India in force for the time being. The Employee shall also keep Vikisol Technologies and its Client indemnified against any loss or damage which they may incur due to any act of the Employee misconduct or mishandling of the said hardware and or peripherals during the term of this Employment."));
+
+            blocks.add(heading("8.PROBATIONARY PERIOD:"));
+            blocks.add(paragraph("Probationary Period 6 Months from the date of appointment (On successful completion of probationary period the employee shall receive a written confirmation). During the probation period, Management at its discretion terminate the services of the probationer's, During the original or extended period of probation, with 30 days' notice and employee will be free to leave from the service of the Vikisol Technologies with 30 days' notice or salary in lieu thereof"));
+
+            blocks.add(heading("9. ACCEPTANCE OF THE ABOVE TERMS"));
+            blocks.add(paragraph("The above terms and conditions (and those present in Annexure-I) are accepted by the Employer and Employee and shall be binding on them unless modified or altered in writing or by operation of any law and not otherwise. This Agreement (including Annexure-I) constitutes & governs entire understanding between Vikisol Technologies and the Employee to the exclusion of all other written or verbal representations, statements, understandings, negotiations or proposals and shall apply to employment relationship between the parties unless anything to the contrary is mutually agreed in writing, there by agreeing to continue \"One Year Service\" to the company without fail, unless & until the actions are taken from the Company."));
+
+            // ── Signatures ─────────────────────────────────────────────────────────────
+            blocks.add(pageBreak());
+            blocks.add(paragraph("IN WITNESS WHEREOF, the parties hereby sign & execute this Agreement on the day, month and year mentioned above for & on behalf of Vikisol Technologies Pvt Ltd."));
+            blocks.add(signatureWithRole("For Vikisol Technologies Pvt Ltd", "{{CeoName}}<br/>Chief Executive Officer (CEO)", "CEO", "", "", ""));
+            blocks.add(paragraph("I CONFIRM THAT I HAVE CAREFULLY READ THROUGH AND UNDERSTOOD ALL THE ABOVE TERMS AND CONDITIONS OF THIS APPOINTMENT AND I UNDERTAKE TO ABIDE BY THE SAID TERMS AND CONDITIONS."));
+            blocks.add(paragraph("Accepted by Name: {{EmployeeName}}"));
+            blocks.add(paragraph("(Signature of Employee): ___________ Date: ___________"));
+
+            // ── Annexure A ────────────────────────────────────────────────────────────
+            blocks.add(pageBreak());
+            blocks.add(heading("Miscellaneous - Annexure A"));
+            blocks.add(paragraph("(i) (a) Vikisol Technologies will make a PF/ ESI and other statutory contributions as per the applicable laws of India."));
+            blocks.add(paragraph("(b) Payment date of salary: On last working day of the month or before 3rd of every month immediately succeeding the month for which salary is being paid."));
+            blocks.add(paragraph("(c) Leave Entitlement: As per applicable laws of India and Leave Policy as defined. 20 days own leave - needs to be Informed at least 7 days in advance with line manager as listed below: (14 Earned Leaves ,6 Casual and 3 Sick Leaves) Earned leave can be carry forward for next year and can be encashed (Encashment of the same is on Basic Salary). You will be eligible for Earned and Casual leave after Probationary period of 6 months"));
+
+            // ── Annexure B ────────────────────────────────────────────────────────────
+            blocks.add(pageBreak());
+            blocks.add(heading("Annexure B"));
+            blocks.add(annexureBTable());
+
+            String json = objectMapper.writeValueAsString(blocks);
+            var request = new DocumentTemplateRequest(Document.DocumentType.OFFER_LETTER, "Corporate Offer Letter", json, null);
+            var draft = documentTemplateService.createDraft(request, "system-seed");
+            documentTemplateService.publish(draft.id());
+            log.info("Seeded and published Corporate Offer Letter template ({} content blocks)", blocks.size());
+        } catch (Exception e) {
+            log.warn("Could not seed Offer Letter template: {}", e.getMessage());
+        }
+    }
+
+    // Matches the real Annexure B layout (Fixed Components / Benefits / Deferrals / Total CTC).
+    // PT is sourced from PayrollService.getConfigAsBigDecimal("PROFESSIONAL_TAX") (a real system
+    // config value, not fabricated) since computeCtcBreakup() doesn't return it directly. PF and
+    // Medical(insurance) rows are left as "-" (matching the source PDFs, which show "-" for those
+    // rows too since this company doesn't currently deduct them at offer stage).
+    private Map<String, Object> annexureBTable() {
+        java.util.Map<String, Object> t = new java.util.LinkedHashMap<>();
+        t.put("type", "table");
+        t.put("columns", List.of("Fixed Components", "CTC per Month", "CTC Per Annum"));
+        t.put("rows", List.of(
+                List.of("Basic", "{{BasicMonthly}}", "{{BasicAnnual}}"),
+                List.of("House Rent Allowance", "{{HRAMonthly}}", "{{HRAAnnual}}"),
+                List.of("Special Allowance", "{{SpecialAllowanceMonthly}}", "{{SpecialAllowanceAnnual}}"),
+                List.of("Other Allowance", "{{OtherAllowanceMonthly}}", "{{OtherAllowanceAnnual}}"),
+                List.of("Total Fixed Salary", "{{TotalFixedMonthly}}", "{{TotalFixedAnnual}}"),
+                List.of("Benefits", "-", "-"),
+                List.of("PT", "{{PTMonthly}}", "{{PTAnnual}}"),
+                List.of("PF", "-", "-"),
+                List.of("Medical(insurance)", "-", "-"),
+                List.of("Total Deferrals", "{{PTMonthly}}", "{{PTAnnual}}"),
+                List.of("Total CTC (A + B)", "{{TotalCtcMonthly}}", "{{TotalCtcAnnual}}")
+        ));
+        return t;
     }
 
     private void seedTemplateIfMissing(Document.DocumentType type, String name, String bodyHtml) {
@@ -613,6 +808,38 @@ public class DataSeeder implements CommandLineRunner {
         seedVariable("CeoName", "CEO Name", "From Branding settings", null);
         seedVariable("HRName", "HR Name", "From Branding settings", null);
         seedVariable("CurrentDate", "Current Date", "Today's date, auto-filled at generation time", null);
+
+        // Offer-Letter-specific placeholders (see DataSeeder.seedOfferLetterTemplate) - scoped to
+        // OFFER_LETTER since they don't make sense on other document types.
+        var offerType = Document.DocumentType.OFFER_LETTER;
+        seedVariable("OfferDate", "Offer Date", "Date the offer letter is issued", offerType);
+        seedVariable("Salutation", "Salutation", "Mr./Ms./Mx. etc.", offerType);
+        seedVariable("MonthlySalary", "Monthly Salary", "Base salary per month", offerType);
+        seedVariable("Location", "Work Location", "City/office the candidate is based in", offerType);
+        seedVariable("ReportingManagerTitle", "Reporting Manager Title", "Job title of the reporting manager", offerType);
+        seedVariable("ReportingManagerName", "Reporting Manager Name", "Name of the reporting manager", offerType);
+        seedVariable("WorkStartTime", "Work Start Time", "Daily working hours start", offerType);
+        seedVariable("WorkEndTime", "Work End Time", "Daily working hours end", offerType);
+        seedVariable("WorkDays", "Work Days", "Working days description (e.g. Monday to Friday)", offerType);
+        seedVariable("JoiningTime", "Joining Time", "Time of day to report on the joining date", offerType);
+        seedVariable("OrientationContact", "Orientation Contact", "Person to report to for documentation/orientation", offerType);
+        seedVariable("AcceptanceDeadline", "Acceptance Deadline", "Date the signed offer must be returned by", offerType);
+        seedVariable("BasicMonthly", "Basic (Monthly)", "Monthly basic salary component", offerType);
+        seedVariable("BasicAnnual", "Basic (Annual)", "Annual basic salary component", offerType);
+        seedVariable("HRAMonthly", "HRA (Monthly)", "Monthly house rent allowance", offerType);
+        seedVariable("HRAAnnual", "HRA (Annual)", "Annual house rent allowance", offerType);
+        seedVariable("ConveyanceMonthly", "Conveyance (Monthly)", "Monthly conveyance allowance", offerType);
+        seedVariable("ConveyanceAnnual", "Conveyance (Annual)", "Annual conveyance allowance", offerType);
+        seedVariable("MedicalMonthly", "Medical (Monthly)", "Monthly medical allowance", offerType);
+        seedVariable("MedicalAnnual", "Medical (Annual)", "Annual medical allowance", offerType);
+        seedVariable("SpecialAllowanceMonthly", "Special Allowance (Monthly)", "Monthly special allowance", offerType);
+        seedVariable("SpecialAllowanceAnnual", "Special Allowance (Annual)", "Annual special allowance", offerType);
+        seedVariable("OtherAllowanceMonthly", "Other Allowance (Monthly)", "Monthly custom/other allowance", offerType);
+        seedVariable("OtherAllowanceAnnual", "Other Allowance (Annual)", "Annual custom/other allowance", offerType);
+        seedVariable("TotalFixedMonthly", "Total Fixed Salary (Monthly)", "Total monthly gross/fixed salary", offerType);
+        seedVariable("TotalFixedAnnual", "Total Fixed Salary (Annual)", "Total annual gross/fixed salary", offerType);
+        seedVariable("TotalCtcMonthly", "Total CTC (Monthly)", "Total CTC divided monthly", offerType);
+        seedVariable("TotalCtcAnnual", "Total CTC (Annual)", "Total annual CTC", offerType);
     }
 
     private void seedVariable(String key, String label, String description, Document.DocumentType type) {

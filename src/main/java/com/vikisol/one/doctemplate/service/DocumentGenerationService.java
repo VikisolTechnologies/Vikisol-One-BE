@@ -62,7 +62,7 @@ public class DocumentGenerationService {
         allFields.putAll(fields); // caller-supplied values win over the branding defaults above
 
         String templateBody = template.getContentBlocksJson() != null && !template.getContentBlocksJson().isBlank()
-                ? blockRenderer.render(template.getContentBlocksJson())
+                ? blockRenderer.render(template.getContentBlocksJson(), branding)
                 : template.getBodyHtml();
         String body = substitute(templateBody, allFields);
         assertNoUnresolvedPlaceholders(body, template.getName());
@@ -190,13 +190,22 @@ public class DocumentGenerationService {
         String footerText = branding.footerText() != null && !branding.footerText().isBlank()
                 ? branding.footerText()
                 : branding.companyName() + " &#183; " + branding.email() + " &#183; " + branding.website();
+        // Letterhead takes over the whole header area (full-width image, no color bar/tagline)
+        // when Company Branding has one configured - that's the common case for a company that
+        // already has a designed letterhead asset; templates that don't set it keep the existing
+        // logo + color-bar header exactly as before (additive, not a breaking change).
+        String header = branding.letterheadUrl() != null && !branding.letterheadUrl().isBlank()
+                ? "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td>"
+                  + "<img src=\"" + branding.letterheadUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"width:100%;display:block;\"/>"
+                  + "</td></tr></table>"
+                : "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:" + branding.secondaryColor() + ";padding:24px 40px;\">"
+                  + "<img src=\"" + branding.logoUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"height:34px;\"/>"
+                  + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &#8226; TALENT &#8226; TRANSFORMATION</div>"
+                  + "</td></tr></table>";
         return "<html><head><meta charset=\"UTF-8\"/></head>"
                 + "<body style=\"margin:0;padding:0;font-family:" + branding.fontFamily() + ";color:#1a1a1a;\">"
                 + watermark
-                + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:" + branding.secondaryColor() + ";padding:24px 40px;\">"
-                + "<img src=\"" + branding.logoUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"height:34px;\"/>"
-                + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">TECHNOLOGY &#8226; TALENT &#8226; TRANSFORMATION</div>"
-                + "</td></tr></table>"
+                + header
                 + "<div style=\"padding:" + branding.defaultMargin() + ";\">"
                 + bodyHtml
                 + "</div>"
