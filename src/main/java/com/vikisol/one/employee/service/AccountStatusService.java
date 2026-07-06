@@ -32,13 +32,23 @@ public class AccountStatusService {
                     authSettingsService.isMicrosoftLoginConfigured(), false, null);
         }
 
+        Integer expiryDays = authSettingsService.getSettings().passwordExpiryDays();
+        boolean passwordExpired = expiryDays != null && expiryDays > 0 && user.getPasswordChangedAt() != null
+                && user.getPasswordChangedAt().plusSeconds(expiryDays * 86400L).isBefore(Instant.now());
+
         String status;
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
             status = "LOCKED";
         } else if (!user.isEnabled()) {
             status = "PENDING_ACTIVATION";
         } else if (!user.isAccountNonLocked()) {
-            status = "DISABLED";
+            // Reserved for a future manual "suspend" action - no code path in this system sets
+            // accountNonLocked=false today (Employee.status's "Suspended" value is a separate,
+            // purely descriptive field, not tied to login capability), so this is currently
+            // unreachable, not a fake status.
+            status = "SUSPENDED";
+        } else if (passwordExpired) {
+            status = "PASSWORD_EXPIRED";
         } else {
             status = "ACTIVE";
         }

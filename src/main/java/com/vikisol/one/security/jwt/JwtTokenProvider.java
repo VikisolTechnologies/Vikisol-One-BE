@@ -55,6 +55,18 @@ public class JwtTokenProvider {
                 .getSubject();
     }
 
+    // Used for session invalidation: a token issued before the user's last password change must
+    // be rejected even though its signature/expiry are otherwise still valid.
+    public java.time.Instant getIssuedAtFromToken(String token) {
+        Date issuedAt = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getIssuedAt();
+        return issuedAt != null ? issuedAt.toInstant() : java.time.Instant.EPOCH;
+    }
+
     public boolean validateToken(String token) {
         try {
             Jwts.parser().verifyWith(key).build().parseSignedClaims(token);

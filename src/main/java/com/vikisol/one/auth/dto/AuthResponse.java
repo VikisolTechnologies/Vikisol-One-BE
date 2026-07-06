@@ -6,6 +6,11 @@ public record AuthResponse(
         String email,
         String role,
         String firstName,
-        String lastName
+        String lastName,
+        // True when Company Settings' Password Expiry is enabled and this user's password is
+        // older than that many days. The token is still issued (so the frontend can call
+        // /auth/change-password), but the frontend must force a "Change Password" screen and
+        // block normal navigation until it succeeds.
+        boolean passwordExpired
 ) {
 }

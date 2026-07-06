@@ -34,7 +34,13 @@ public class AuthSettingsService {
             Map.entry("AUTH_MAX_FAILED_ATTEMPTS", "5"),
             Map.entry("AUTH_LOCKOUT_MINUTES", "15"),
             Map.entry("AUTH_PASSWORD_EXPIRY_DAYS", ""),
-            Map.entry("AUTH_SESSION_TIMEOUT_MINUTES", "1440")
+            Map.entry("AUTH_SESSION_TIMEOUT_MINUTES", "1440"),
+            Map.entry("AUTH_PASSWORD_MIN_LENGTH", "8"),
+            Map.entry("AUTH_PASSWORD_REQUIRE_UPPERCASE", "true"),
+            Map.entry("AUTH_PASSWORD_REQUIRE_LOWERCASE", "true"),
+            Map.entry("AUTH_PASSWORD_REQUIRE_NUMBER", "true"),
+            Map.entry("AUTH_PASSWORD_REQUIRE_SPECIAL_CHAR", "true"),
+            Map.entry("AUTH_PASSWORD_HISTORY_COUNT", "3")
     );
 
     public boolean isMicrosoftLoginConfigured() {
@@ -56,7 +62,13 @@ public class AuthSettingsService {
                 Integer.parseInt(get("AUTH_MAX_FAILED_ATTEMPTS", DEFAULTS.get("AUTH_MAX_FAILED_ATTEMPTS"))),
                 Integer.parseInt(get("AUTH_LOCKOUT_MINUTES", DEFAULTS.get("AUTH_LOCKOUT_MINUTES"))),
                 (expiryDays == null || expiryDays.isBlank()) ? null : Integer.valueOf(expiryDays),
-                Integer.parseInt(get("AUTH_SESSION_TIMEOUT_MINUTES", DEFAULTS.get("AUTH_SESSION_TIMEOUT_MINUTES")))
+                Integer.parseInt(get("AUTH_SESSION_TIMEOUT_MINUTES", DEFAULTS.get("AUTH_SESSION_TIMEOUT_MINUTES"))),
+                Integer.parseInt(get("AUTH_PASSWORD_MIN_LENGTH", DEFAULTS.get("AUTH_PASSWORD_MIN_LENGTH"))),
+                Boolean.parseBoolean(get("AUTH_PASSWORD_REQUIRE_UPPERCASE", DEFAULTS.get("AUTH_PASSWORD_REQUIRE_UPPERCASE"))),
+                Boolean.parseBoolean(get("AUTH_PASSWORD_REQUIRE_LOWERCASE", DEFAULTS.get("AUTH_PASSWORD_REQUIRE_LOWERCASE"))),
+                Boolean.parseBoolean(get("AUTH_PASSWORD_REQUIRE_NUMBER", DEFAULTS.get("AUTH_PASSWORD_REQUIRE_NUMBER"))),
+                Boolean.parseBoolean(get("AUTH_PASSWORD_REQUIRE_SPECIAL_CHAR", DEFAULTS.get("AUTH_PASSWORD_REQUIRE_SPECIAL_CHAR"))),
+                Integer.parseInt(get("AUTH_PASSWORD_HISTORY_COUNT", DEFAULTS.get("AUTH_PASSWORD_HISTORY_COUNT")))
         );
     }
 

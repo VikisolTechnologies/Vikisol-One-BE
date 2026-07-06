@@ -1,6 +1,7 @@
 package com.vikisol.one.security.jwt;
 
 import com.vikisol.one.security.service.CustomUserDetailsService;
+import com.vikisol.one.settings.service.AuthSettingsService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +17,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -24,6 +28,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
+    private final AuthSettingsService authSettingsService;
+
+    // Requests a user with an expired password must still be able to make - everything else is
+    // blocked with 403 until they change it. "/auth/login" isn't here since it's permitAll and
+    // never reaches this authenticated branch anyway.
+    private static final Set<String> ALLOWED_WHEN_PASSWORD_EXPIRED = Set.of(
+            "/auth/change-password", "/auth/me");
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -35,11 +46,38 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String email = jwtTokenProvider.getEmailFromToken(token);
             UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            // Session invalidation: reject any token issued before the user's password last
+            // changed, even though its signature and expiry are otherwise still valid. This is
+            // what makes "signed out of all devices after a password reset" actually true for a
+            // stateless JWT - every existing token everywhere becomes invalid the instant
+            // passwordChangedAt moves forward, with no server-side session/blacklist store needed.
+            com.vikisol.one.security.service.UserPrincipal principal =
+                    (com.vikisol.one.security.service.UserPrincipal) userDetails;
+            Instant passwordChangedAt = principal.getPasswordChangedAt();
+            Instant tokenIssuedAt = jwtTokenProvider.getIssuedAtFromToken(token);
+            boolean staleSession = passwordChangedAt != null && tokenIssuedAt.isBefore(passwordChangedAt);
 
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            if (!staleSession) {
+                // Password Expiry enforcement: a real server-side block, not just a frontend
+                // redirect the employee could bypass by calling the API directly. Every endpoint
+                // except change-password/me returns 403 until the password is updated.
+                Integer expiryDays = authSettingsService.getSettings().passwordExpiryDays();
+                boolean expired = expiryDays != null && expiryDays > 0 && passwordChangedAt != null
+                        && passwordChangedAt.plus(Duration.ofDays(expiryDays)).isBefore(Instant.now());
+
+                if (expired && !ALLOWED_WHEN_PASSWORD_EXPIRED.contains(request.getRequestURI().replaceFirst("^/api/v1", ""))) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"success\":false,\"message\":\"Your password has expired. Please change it to continue.\"}");
+                    return;
+                }
+
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
         }
 
         filterChain.doFilter(request, response);

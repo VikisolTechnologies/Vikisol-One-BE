@@ -15,5 +15,11 @@ public record AuthSettingsDto(
         int maxFailedLoginAttempts,
         int lockoutDurationMinutes,
         Integer passwordExpiryDays,       // null = no expiry enforced
-        int sessionTimeoutMinutes
+        int sessionTimeoutMinutes,
+        int passwordMinLength,
+        boolean passwordRequireUppercase,
+        boolean passwordRequireLowercase,
+        boolean passwordRequireNumber,
+        boolean passwordRequireSpecialChar,
+        int passwordHistoryCount          // 0 = reuse of old passwords not restricted
 ) {}

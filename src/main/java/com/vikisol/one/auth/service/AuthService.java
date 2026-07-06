@@ -3,9 +3,11 @@ package com.vikisol.one.auth.service;
 import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.auth.dto.*;
 import com.vikisol.one.auth.entity.ActivationToken;
+import com.vikisol.one.auth.entity.PasswordHistoryEntry;
 import com.vikisol.one.auth.entity.PasswordResetToken;
 import com.vikisol.one.auth.entity.User;
 import com.vikisol.one.auth.repository.ActivationTokenRepository;
+import com.vikisol.one.auth.repository.PasswordHistoryEntryRepository;
 import com.vikisol.one.auth.repository.PasswordResetTokenRepository;
 import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.common.exception.BadRequestException;
@@ -17,6 +19,7 @@ import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -28,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +49,9 @@ public class AuthService {
     private final AuditService auditService;
     private final LoginLockoutService loginLockoutService;
     private final com.vikisol.one.settings.service.AuthSettingsService authSettingsService;
+    private final PasswordPolicy passwordPolicy;
+    private final PasswordHistoryEntryRepository passwordHistoryEntryRepository;
+    private final LoginHistoryService loginHistoryService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -87,6 +94,7 @@ public class AuthService {
                     new UsernamePasswordAuthenticationToken(email, request.password())
             );
         } catch (BadCredentialsException e) {
+            loginHistoryService.record(email, com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.LOGIN_FAILED, false);
             if (user != null) {
                 loginLockoutService.recordFailedAttempt(user);
             }
@@ -101,9 +109,11 @@ public class AuthService {
         authedUser.setLastLoginAt(Instant.now());
         userRepository.save(authedUser);
         auditService.record("Login Succeeded", authedUser.getEmail(), null);
+        loginHistoryService.record(email, com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.LOGIN_SUCCESS, true);
 
+        boolean passwordExpired = isPasswordExpired(authedUser, authSettings);
         return new AuthResponse(token, refreshToken, authedUser.getEmail(),
-                authedUser.getRole().name(), authedUser.getFirstName(), authedUser.getLastName());
+                authedUser.getRole().name(), authedUser.getFirstName(), authedUser.getLastName(), passwordExpired);
     }
 
     @Transactional
@@ -114,10 +124,14 @@ public class AuthService {
         if (!passwordEncoder.matches(request.oldPassword(), user.getPassword())) {
             throw new BadRequestException("Old password is incorrect");
         }
+        passwordPolicy.assertValid(request.newPassword());
+        assertPasswordNotRecentlyUsed(user, request.newPassword());
 
-        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        String newHash = passwordEncoder.encode(request.newPassword());
+        user.setPassword(newHash);
         user.setPasswordChangedAt(Instant.now());
         userRepository.save(user);
+        recordPasswordHistory(user, newHash);
         passwordResetTokenRepository.invalidateAllForUser(user);
         auditService.record("Password Changed", user.getEmail(), null);
     }
@@ -152,6 +166,7 @@ public class AuthService {
         String resetLink = frontendUrl + "/reset-password?token=" + token;
         emailService.sendPasswordResetEmail(personalEmail, user.getFirstName(), user.getEmail(), resetLink);
         auditService.record("Password Reset Requested", user.getEmail(), "Reset link sent to linked personal email");
+        loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.PASSWORD_RESET_REQUESTED, true);
     }
 
     @Transactional(readOnly = true)
@@ -172,14 +187,17 @@ public class AuthService {
         if (resetToken.getExpiresAt().isBefore(Instant.now())) {
             throw new BadRequestException("This password reset link has expired. Please request a new one.");
         }
-        PasswordPolicy.assertValid(request.newPassword());
-
         User user = resetToken.getUser();
-        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        passwordPolicy.assertValid(request.newPassword());
+        assertPasswordNotRecentlyUsed(user, request.newPassword());
+
+        String newHash = passwordEncoder.encode(request.newPassword());
+        user.setPassword(newHash);
         user.setPasswordChangedAt(Instant.now());
         user.setFailedLoginCount(0);
         user.setLockedUntil(null);
         userRepository.save(user);
+        recordPasswordHistory(user, newHash);
 
         resetToken.setUsed(true);
         passwordResetTokenRepository.save(resetToken);
@@ -187,6 +205,43 @@ public class AuthService {
         passwordResetTokenRepository.invalidateAllForUser(user);
 
         auditService.record("Password Reset Completed", user.getEmail(), null);
+        loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.PASSWORD_RESET_COMPLETED, true);
+    }
+
+    // Password History: blocks reuse of the last N passwords (N = AuthSettingsDto.passwordHistoryCount(),
+    // CEO/Admin-configurable, 0 = disabled). Checks the CURRENT password too, since it wouldn't be
+    // in the history table yet at the moment of a same-password "change".
+    private void assertPasswordNotRecentlyUsed(User user, String rawNewPassword) {
+        int historyCount = authSettingsService.getSettings().passwordHistoryCount();
+        if (historyCount <= 0) return;
+        if (passwordEncoder.matches(rawNewPassword, user.getPassword())) {
+            throw new BadRequestException("You cannot reuse your current password. Please choose a new one.");
+        }
+        List<PasswordHistoryEntry> recent = passwordHistoryEntryRepository
+                .findByUserOrderByCreatedAtDesc(user, PageRequest.of(0, historyCount));
+        for (PasswordHistoryEntry entry : recent) {
+            if (passwordEncoder.matches(rawNewPassword, entry.getPasswordHash())) {
+                throw new BadRequestException("You cannot reuse one of your last " + historyCount + " passwords. Please choose a new one.");
+            }
+        }
+    }
+
+    // Password Expiry: if enabled (a non-null day count in Authentication Settings), any user
+    // whose passwordChangedAt is older than that many days is flagged so the frontend can force a
+    // "Change Password" screen before continuing. Users who've never changed their password
+    // (passwordChangedAt null - shouldn't normally happen once activation sets it, but defensively
+    // handled) are NOT force-expired here, since there's no baseline to measure age from.
+    private boolean isPasswordExpired(User user, com.vikisol.one.settings.dto.AuthSettingsDto settings) {
+        Integer expiryDays = settings.passwordExpiryDays();
+        if (expiryDays == null || expiryDays <= 0 || user.getPasswordChangedAt() == null) return false;
+        return user.getPasswordChangedAt().plus(Duration.ofDays(expiryDays)).isBefore(Instant.now());
+    }
+
+    private void recordPasswordHistory(User user, String newHashedPassword) {
+        passwordHistoryEntryRepository.save(PasswordHistoryEntry.builder()
+                .user(user)
+                .passwordHash(newHashedPassword)
+                .build());
     }
 
     private String generateResetToken() {
@@ -215,16 +270,19 @@ public class AuthService {
         if (activationToken.getExpiresAt().isBefore(Instant.now())) {
             throw new BadRequestException("This activation link has expired. Please ask HR to resend it.");
         }
-        PasswordPolicy.assertValid(request.password());
-
         User user = activationToken.getUser();
-        user.setPassword(passwordEncoder.encode(request.password()));
+        passwordPolicy.assertValid(request.password());
+
+        String newHash = passwordEncoder.encode(request.password());
+        user.setPassword(newHash);
         user.setPasswordChangedAt(Instant.now());
         user.setEnabled(true);
         userRepository.save(user);
+        recordPasswordHistory(user, newHash);
 
         activationToken.setUsed(true);
         activationTokenRepository.save(activationToken);
         auditService.record("Account Activated", user.getEmail(), null);
+        loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.ACCOUNT_ACTIVATED, true);
     }
 }

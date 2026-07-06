@@ -23,6 +23,7 @@ public class LoginLockoutService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuthSettingsService authSettingsService;
+    private final LoginHistoryService loginHistoryService;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailedAttempt(User user) {
@@ -37,6 +38,7 @@ public class LoginLockoutService {
             user.setLockedUntil(Instant.now().plusSeconds(settings.lockoutDurationMinutes() * 60L));
             auditService.record("Account Locked", user.getEmail(),
                     "Locked for " + settings.lockoutDurationMinutes() + " minutes after " + count + " failed login attempts");
+            loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.ACCOUNT_LOCKED, false);
         }
         userRepository.save(user);
         auditService.record("Login Failed", user.getEmail(), "Attempt " + count + " of " + settings.maxFailedLoginAttempts());
