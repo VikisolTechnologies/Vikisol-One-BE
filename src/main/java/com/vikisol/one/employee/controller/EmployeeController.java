@@ -8,8 +8,11 @@ import com.vikisol.one.employee.dto.EmployeeResponse;
 import com.vikisol.one.employee.dto.HikeRequest;
 import com.vikisol.one.employee.dto.OnboardingChecklistRequest;
 import com.vikisol.one.employee.dto.ResignationRequest;
+import com.vikisol.one.employee.service.EmployeeDashboardService;
 import com.vikisol.one.employee.service.EmployeeService;
 import com.vikisol.one.employee.service.EmployeeTimelineService;
+import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.common.exception.BadRequestException;
 import com.vikisol.one.security.RoleEnum;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +33,8 @@ public class EmployeeController {
 
     private final EmployeeService employeeService;
     private final EmployeeTimelineService employeeTimelineService;
+    private final EmployeeDashboardService employeeDashboardService;
+    private final EmployeeRepository employeeRepository;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN','MANAGER')")
@@ -184,5 +189,19 @@ public class EmployeeController {
     @GetMapping("/{employeeId}/timeline")
     public ResponseEntity<ApiResponse<List<com.vikisol.one.employee.dto.EmployeeTimelineEntry>>> getTimeline(@PathVariable UUID employeeId) {
         return ResponseEntity.ok(new ApiResponse<>(true, "Employee timeline retrieved", employeeTimelineService.getTimeline(employeeId)));
+    }
+
+    // Self-or-privileged, matching BackgroundCheckController's pattern - this is the employee's own
+    // "Home" dashboard, but HR/CEO/Admin/a direct manager may also need to preview it.
+    @GetMapping("/{employeeId}/dashboard-summary")
+    public ResponseEntity<ApiResponse<com.vikisol.one.employee.dto.EmployeeDashboardSummaryResponse>> getDashboardSummary(
+            @PathVariable UUID employeeId, @AuthenticationPrincipal UserPrincipal principal) {
+        boolean privileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isSelf = employeeRepository.findById(employeeId)
+                .map(e -> e.getUser() != null && e.getUser().getId().equals(principal.getId()))
+                .orElse(false);
+        if (!privileged && !isSelf) throw new BadRequestException("You do not have permission to view this employee's dashboard");
+        return ResponseEntity.ok(new ApiResponse<>(true, "Dashboard summary retrieved", employeeDashboardService.getSummary(employeeId)));
     }
 }

@@ -71,6 +71,21 @@ public class PolicyAcknowledgementService {
                 .orElse(new AcknowledgementStatusResponse("NOT_VIEWED", null, null));
     }
 
+    // Policies this employee still needs to acknowledge (requiresAcknowledgement=true and not yet
+    // ACCEPTED) - used by the dashboard's "policies awaiting acknowledgement" widget.
+    @Transactional(readOnly = true)
+    public List<com.vikisol.one.policy.entity.CompanyPolicy> getPendingPolicies(UUID employeeId) {
+        List<com.vikisol.one.policy.entity.CompanyPolicy> active = policyService.list(false).stream()
+                .filter(com.vikisol.one.policy.dto.PolicyResponse::requiresAcknowledgement)
+                .map(p -> policyService.getEntity(p.id()))
+                .toList();
+        return active.stream()
+                .filter(p -> acknowledgementRepository.findByPolicyIdAndEmployeeId(p.getId(), employeeId)
+                        .map(a -> a.getAcceptedAt() == null)
+                        .orElse(true))
+                .toList();
+    }
+
     // HR/CEO compliance view - every active employee's status for this policy, including those
     // who haven't viewed it at all (no acknowledgement row yet).
     @Transactional(readOnly = true)

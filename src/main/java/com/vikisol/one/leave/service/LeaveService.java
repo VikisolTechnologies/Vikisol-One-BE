@@ -282,6 +282,30 @@ public class LeaveService {
                 .toList();
     }
 
+    // Employee-id-based variant of getMyBalances - used by the dashboard aggregator, which
+    // already knows the employeeId (from the path/access-check) rather than a UserPrincipal.
+    @Transactional(readOnly = true)
+    public List<LeaveBalanceResponse> getBalancesForEmployee(UUID employeeId, int year) {
+        return leaveBalanceRepository.findByEmployeeIdAndYear(employeeId, year).stream()
+                .map(b -> new LeaveBalanceResponse(
+                        b.getLeaveType().getName(),
+                        b.getTotalDays(),
+                        b.getUsedDays(),
+                        b.getRemainingDays(),
+                        b.getCarryForwardDays(),
+                        b.getYear()
+                ))
+                .toList();
+    }
+
+    // How many pending leave requests are waiting on this employee's approval (as a manager) -
+    // used for the dashboard's "pending approvals" widget. Employee-id-based, mirroring
+    // getPendingApprovals but without requiring a UserPrincipal lookup.
+    @Transactional(readOnly = true)
+    public long countPendingApprovalsForEmployee(UUID employeeId) {
+        return leaveRequestRepository.findPendingForApprover(employeeId, org.springframework.data.domain.Pageable.unpaged()).getTotalElements();
+    }
+
     @Transactional(readOnly = true)
     public PagedResponse<LeaveRequestResponse> getTeamLeaveRequests(UserPrincipal principal, Pageable pageable) {
         Employee manager = employeeRepository.findByUserId(principal.getId())

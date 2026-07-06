@@ -109,6 +109,15 @@ public class AttendanceService {
                 .orElse(null);
     }
 
+    // Employee-id-based variant of getTodayAttendance - used by the dashboard aggregator, which
+    // already knows the employeeId rather than a UserPrincipal.
+    @Transactional(readOnly = true)
+    public AttendanceResponse getTodayAttendanceForEmployee(UUID employeeId) {
+        return attendanceRepository.findByEmployeeIdAndDate(employeeId, LocalDate.now())
+                .map(this::mapToResponse)
+                .orElse(null);
+    }
+
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getMyAttendance(UserPrincipal principal, LocalDate start, LocalDate end) {
         Employee employee = employeeRepository.findByUserId(principal.getId())

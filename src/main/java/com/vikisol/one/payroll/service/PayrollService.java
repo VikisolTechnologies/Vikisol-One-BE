@@ -308,6 +308,14 @@ public class PayrollService {
         return toPayslipResponse(payslip);
     }
 
+    // Latest payslip for an employeeId directly - used by the dashboard aggregator, which already
+    // knows the employeeId rather than a UserPrincipal.
+    @Transactional(readOnly = true)
+    public PayslipResponse getLatestPayslip(UUID employeeId) {
+        return payslipRepository.findByEmployeeIdOrderByYearDescMonthDesc(employeeId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent().stream().findFirst().map(this::toPayslipResponse).orElse(null);
+    }
+
     @Transactional(readOnly = true)
     public PagedResponse<PayslipResponse> getMyPayslips(UserPrincipal principal, Pageable pageable) {
         Employee employee = employeeRepository.findByUserId(principal.getId())

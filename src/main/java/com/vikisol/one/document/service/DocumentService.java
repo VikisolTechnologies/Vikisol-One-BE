@@ -112,6 +112,17 @@ public class DocumentService {
         return documents.stream().filter(d -> !MANAGER_HIDDEN_TYPES.contains(d.getType())).map(this::toResponse).collect(Collectors.toList());
     }
 
+    // Most-recently-added documents for this employee, capped at `limit` - used by the dashboard's
+    // "recent documents" widget. No extra permission check here since it's only ever called for
+    // the dashboard owner's own employeeId (the controller already enforced self-or-privileged).
+    public List<DocumentResponse> getRecentDocuments(UUID employeeId, int limit) {
+        return documentRepository.findByEmployeeId(employeeId).stream()
+                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                .limit(limit)
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     public List<DocumentResponse> getMyDocuments(UserPrincipal principal) {
         Employee employee = employeeRepository.findByUserId(principal.getId())
                 .orElseThrow(() -> new RuntimeException("Employee not found for user"));
