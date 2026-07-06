@@ -36,4 +36,14 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e FROM Employee e WHERE e.isActive = true AND e.user IS NOT NULL AND e.user.role IN ('MANAGER','HR_MANAGER','CEO','ADMIN')")
     List<Employee> findAllManagers();
+
+    List<Employee> findByIsActiveTrueAndDateOfJoining(java.time.LocalDate dateOfJoining);
+
+    List<Employee> findByIsActiveTrueAndLifecycleStatusAndProbationEndDateBetween(
+            Employee.LifecycleStatus lifecycleStatus, java.time.LocalDate from, java.time.LocalDate to);
+
+    List<Employee> findByIsActiveTrueAndLifecycleStatusAndProbationEndDateBefore(
+            Employee.LifecycleStatus lifecycleStatus, java.time.LocalDate date);
+
+    List<Employee> findByIsActiveTrueAndLifecycleStatus(Employee.LifecycleStatus lifecycleStatus);
 }

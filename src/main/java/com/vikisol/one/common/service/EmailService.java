@@ -1,6 +1,8 @@
 package com.vikisol.one.common.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vikisol.one.communication.entity.EmailLog;
+import com.vikisol.one.communication.service.EmailLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +28,7 @@ import java.util.Map;
 public class EmailService {
 
     private final ObjectMapper objectMapper;
+    private final EmailLogService emailLogService;
 
     @Value("${resend.api-key:}")
     private String resendApiKey;
@@ -107,21 +110,33 @@ public class EmailService {
     // through this app's existing Resend account without duplicating the request-building logic.
     @Async
     public void sendRaw(List<String> to, List<String> cc, String subject, String htmlBody, List<Attachment> attachments) {
+        String recipient = (to != null && !to.isEmpty()) ? String.join(",", to) : "unknown";
         try {
             send(to, cc, subject, htmlBody, attachments);
             log.info("Email sent (raw) to {} cc {}: {}", to, cc, subject);
+            emailLogService.log(recipient, subject, EmailLog.Category.OTHER, EmailLog.Status.SENT, null, null);
         } catch (Exception e) {
             log.warn("Failed to send raw email to {}: {}", to, e.getMessage());
+            emailLogService.log(recipient, subject, EmailLog.Category.OTHER, EmailLog.Status.FAILED, null, e.getMessage());
         }
     }
 
-    @Async
     public void sendEmail(String to, String subject, String body) {
+        sendEmail(to, subject, body, EmailLog.Category.OTHER, null);
+    }
+
+    // Category/employee-id aware variant - used by the internal notification helpers below so the
+    // Communication Center audit log carries a meaningful category instead of everything landing
+    // under OTHER. Kept as an overload rather than touching every external call site.
+    @Async
+    public void sendEmail(String to, String subject, String body, EmailLog.Category category, java.util.UUID relatedEmployeeId) {
         try {
             send(to, subject, "<p style=\"white-space:pre-wrap;font-family:Segoe UI,Arial,sans-serif;\">" + body + "</p>");
             log.info("Email sent to {}: {}", to, subject);
+            emailLogService.log(to, subject, category, EmailLog.Status.SENT, relatedEmployeeId, null);
         } catch (Exception e) {
             log.warn("Failed to send email to {}: {}", to, e.getMessage());
+            emailLogService.log(to, subject, category, EmailLog.Status.FAILED, relatedEmployeeId, e.getMessage());
         }
     }
 
@@ -132,36 +147,56 @@ public class EmailService {
                         "<p style=\"color:#333;font-size:14px;\">This is a test email confirming " + fromEmail + " is correctly wired up to Vikisol One via Resend.</p>"));
     }
 
-    @Async
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
-        try {
-            send(to, subject, htmlBody);
-            log.info("HTML email sent to {}: {}", to, subject);
-        } catch (Exception e) {
-            log.warn("Failed to send HTML email to {}: {}", to, e.getMessage());
-        }
+        sendHtmlEmail(to, subject, htmlBody, EmailLog.Category.OTHER, null);
     }
 
     @Async
+    public void sendHtmlEmail(String to, String subject, String htmlBody, EmailLog.Category category, java.util.UUID relatedEmployeeId) {
+        try {
+            send(to, subject, htmlBody);
+            log.info("HTML email sent to {}: {}", to, subject);
+            emailLogService.log(to, subject, category, EmailLog.Status.SENT, relatedEmployeeId, null);
+        } catch (Exception e) {
+            log.warn("Failed to send HTML email to {}: {}", to, e.getMessage());
+            emailLogService.log(to, subject, category, EmailLog.Status.FAILED, relatedEmployeeId, e.getMessage());
+        }
+    }
+
     public void sendHtmlEmailWithAttachment(String to, String subject, String htmlBody, Attachment attachment) {
+        sendHtmlEmailWithAttachment(to, subject, htmlBody, attachment, EmailLog.Category.OTHER, null);
+    }
+
+    @Async
+    public void sendHtmlEmailWithAttachment(String to, String subject, String htmlBody, Attachment attachment,
+                                             EmailLog.Category category, java.util.UUID relatedEmployeeId) {
         try {
             send(to, subject, htmlBody, List.of(attachment));
             log.info("HTML email with attachment sent to {}: {}", to, subject);
+            emailLogService.log(to, subject, category, EmailLog.Status.SENT, relatedEmployeeId, null);
         } catch (Exception e) {
             log.warn("Failed to send HTML email with attachment to {}: {}", to, e.getMessage());
+            emailLogService.log(to, subject, category, EmailLog.Status.FAILED, relatedEmployeeId, e.getMessage());
         }
     }
 
     // Multi-attachment variant - needed for the offboarding "exit package" email, which bundles
     // whichever generated documents (experience letter, relieving letter, payslips, etc.) actually
     // exist for the employee rather than a single PDF.
-    @Async
     public void sendHtmlEmailWithAttachments(String to, String subject, String htmlBody, List<Attachment> attachments) {
+        sendHtmlEmailWithAttachments(to, subject, htmlBody, attachments, EmailLog.Category.OTHER, null);
+    }
+
+    @Async
+    public void sendHtmlEmailWithAttachments(String to, String subject, String htmlBody, List<Attachment> attachments,
+                                              EmailLog.Category category, java.util.UUID relatedEmployeeId) {
         try {
             send(to, subject, htmlBody, attachments);
             log.info("HTML email with {} attachment(s) sent to {}: {}", attachments.size(), to, subject);
+            emailLogService.log(to, subject, category, EmailLog.Status.SENT, relatedEmployeeId, null);
         } catch (Exception e) {
             log.warn("Failed to send HTML email with attachments to {}: {}", to, e.getMessage());
+            emailLogService.log(to, subject, category, EmailLog.Status.FAILED, relatedEmployeeId, e.getMessage());
         }
     }
 
@@ -199,25 +234,25 @@ public class EmailService {
     public void sendLeaveApprovalNotification(String employeeEmail, String employeeName, String status, String leaveType, String dates) {
         String subject = "Leave " + status + " - " + leaveType;
         String body = String.format("Dear %s,\n\nYour %s request for %s has been %s.\n\nRegards,\nVikisol One HR", employeeName, leaveType, dates, status.toLowerCase());
-        sendEmail(employeeEmail, subject, body);
+        sendEmail(employeeEmail, subject, body, EmailLog.Category.REMINDER, null);
     }
 
     public void sendLeaveApplicationNotification(String managerEmail, String employeeName, String leaveType, String dates) {
         String subject = "Leave Application - " + employeeName;
         String body = String.format("Dear Manager,\n\n%s has applied for %s from %s.\nPlease review and take action.\n\nRegards,\nVikisol One HR", employeeName, leaveType, dates);
-        sendEmail(managerEmail, subject, body);
+        sendEmail(managerEmail, subject, body, EmailLog.Category.REMINDER, null);
     }
 
     public void sendPayrollProcessedNotification(String email, String name, String month, String year) {
         String subject = "Payslip Generated - " + month + "/" + year;
         String body = String.format("Dear %s,\n\nYour payslip for %s/%s has been generated. Please log in to view details.\n\nRegards,\nVikisol One HR", name, month, year);
-        sendEmail(email, subject, body);
+        sendEmail(email, subject, body, EmailLog.Category.REMINDER, null);
     }
 
     public void sendTicketNotification(String email, String ticketNumber, String title, String status) {
         String subject = "Ticket " + ticketNumber + " - " + status;
         String body = String.format("Ticket %s: %s\nStatus: %s\n\nPlease log in for details.\n\nRegards,\nVikisol One", ticketNumber, title, status);
-        sendEmail(email, subject, body);
+        sendEmail(email, subject, body, EmailLog.Category.REMINDER, null);
     }
 
     // Builds a minimal RFC 5545 .ics calendar invite so the interview shows up on the recipient's
@@ -335,9 +370,9 @@ public class EmailService {
         String html = brandedTemplate("Your offer from Vikisol is ready", body);
         if (offerLetterPdf != null) {
             String safeFileName = "Offer_Letter_" + candidateName.trim().replaceAll("\\s+", "_") + ".pdf";
-            sendHtmlEmailWithAttachment(email, subject, html, new Attachment(safeFileName, offerLetterPdf));
+            sendHtmlEmailWithAttachment(email, subject, html, new Attachment(safeFileName, offerLetterPdf), EmailLog.Category.OFFER, null);
         } else {
-            sendHtmlEmail(email, subject, html);
+            sendHtmlEmail(email, subject, html, EmailLog.Category.OFFER, null);
         }
     }
 
@@ -436,7 +471,7 @@ public class EmailService {
                 + "<p style=\"margin:0;color:#444;\">Thank you for your continued contribution to Vikisol - this revision reflects the value you bring to the team.</p>"
                 + signatureBlock("Warm regards", "Human Resources");
 
-        sendHtmlEmail(email, subject, brandedTemplate("Your salary revision at Vikisol", body));
+        sendHtmlEmail(email, subject, brandedTemplate("Your salary revision at Vikisol", body), EmailLog.Category.OTHER, null);
     }
 
     public void sendResignationAcknowledgementEmail(String email, String name, LocalDate lastWorkingDate) {
@@ -453,7 +488,7 @@ public class EmailService {
                 + "<p style=\"margin:0;color:#444;\">We appreciate your contributions and wish you the very best for your future endeavors.</p>"
                 + signatureBlock("Regards", "Human Resources");
 
-        sendHtmlEmail(email, subject, brandedTemplate("Your resignation has been acknowledged", body));
+        sendHtmlEmail(email, subject, brandedTemplate("Your resignation has been acknowledged", body), EmailLog.Category.EXIT, null);
     }
 
     // Farewell email sent as the final step of offboarding, once the exit package (whatever
@@ -470,16 +505,16 @@ public class EmailService {
                 + signatureBlock("Warm Regards", "Human Resources");
         String html = brandedTemplate("Farewell from Vikisol Technologies", body);
         if (attachments != null && !attachments.isEmpty()) {
-            sendHtmlEmailWithAttachments(personalEmail, subject, html, attachments);
+            sendHtmlEmailWithAttachments(personalEmail, subject, html, attachments, EmailLog.Category.EXIT, null);
         } else {
-            sendHtmlEmail(personalEmail, subject, html);
+            sendHtmlEmail(personalEmail, subject, html, EmailLog.Category.EXIT, null);
         }
     }
 
     public void sendTimesheetSubmittedNotification(String managerEmail, String employeeName, String weekLabel) {
         String subject = "Timesheet Submitted for Approval - " + employeeName;
         String body = String.format("Dear Manager,\n\n%s has submitted their timesheet for %s and it is awaiting your approval.\n\nPlease log in to Vikisol One to review.\n\nRegards,\nVikisol One HR", employeeName, weekLabel);
-        sendEmail(managerEmail, subject, body);
+        sendEmail(managerEmail, subject, body, EmailLog.Category.REMINDER, null);
     }
 
     // Sent to the employee's PERSONAL email (never official - they have no access to that inbox
@@ -496,7 +531,7 @@ public class EmailService {
                 + "</td></tr></table>"
                 + "<p style=\"margin:0 0 20px;color:#444;\">This link expires in 24 hours. If it expires, ask HR to resend your activation email.</p>"
                 + signatureBlock("Regards", "Human Resources");
-        sendHtmlEmail(personalEmail, subject, brandedTemplate("Activate your Vikisol One account", body));
+        sendHtmlEmail(personalEmail, subject, brandedTemplate("Activate your Vikisol One account", body), EmailLog.Category.WELCOME, null);
     }
 
     public void sendAssessmentResultEmail(String email, String name, String testName, double score, double maxScore, boolean passed) {
