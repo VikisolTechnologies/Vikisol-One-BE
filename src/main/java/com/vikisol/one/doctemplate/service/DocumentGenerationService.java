@@ -194,24 +194,35 @@ public class DocumentGenerationService {
     // no longer hardcoded here, they come from BrandingDto so a CEO/HR Admin change on the
     // Company Branding page takes effect on the next document generated, no code/redeploy needed.
     private String wrapWithChrome(String bodyHtml, BrandingDto branding) {
-        String watermark = branding.watermarkUrl() != null && !branding.watermarkUrl().isBlank()
-                ? "<div style=\"position:fixed;top:35%;left:15%;opacity:0.08;z-index:-1;\">"
-                  + "<img src=\"" + branding.watermarkUrl() + "\" style=\"width:400px;\"/></div>"
-                : "";
-        String footerText = branding.footerText() != null && !branding.footerText().isBlank()
+        // Every branding value spliced in here is free text a CEO/HR Admin typed into Company
+        // Branding (company name, tagline, footer text) or an uploaded asset URL - none of it goes
+        // through substitute()'s escaping, so an unescaped "&" (e.g. "Vikisol Technologies &
+        // Solutions") broke strict-XML parsing at render time. Escape everything the same way
+        // substitute() escapes {{Placeholder}} values.
+        String companyName = escapeXml(branding.companyName());
+        String tagline = escapeXml(nullToEmpty(branding.tagline()));
+        String watermarkUrl = escapeXml(nullToEmpty(branding.watermarkUrl()));
+        String letterheadUrl = escapeXml(nullToEmpty(branding.letterheadUrl()));
+        String logoUrl = escapeXml(nullToEmpty(branding.logoUrl()));
+        String footerText = escapeXml(branding.footerText() != null && !branding.footerText().isBlank()
                 ? branding.footerText()
-                : branding.companyName() + " &#183; " + branding.email() + " &#183; " + branding.website();
+                : branding.companyName() + " · " + branding.email() + " · " + branding.website());
+
+        String watermark = !watermarkUrl.isBlank()
+                ? "<div style=\"position:fixed;top:35%;left:15%;opacity:0.08;z-index:-1;\">"
+                  + "<img src=\"" + watermarkUrl + "\" style=\"width:400px;\"/></div>"
+                : "";
         // Letterhead takes over the whole header area (full-width image, no color bar/tagline)
         // when Company Branding has one configured - that's the common case for a company that
         // already has a designed letterhead asset; templates that don't set it keep the existing
         // logo + color-bar header exactly as before (additive, not a breaking change).
-        String header = branding.letterheadUrl() != null && !branding.letterheadUrl().isBlank()
+        String header = !letterheadUrl.isBlank()
                 ? "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td>"
-                  + "<img src=\"" + branding.letterheadUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"width:100%;display:block;\"/>"
+                  + "<img src=\"" + letterheadUrl + "\" alt=\"" + companyName + "\" style=\"width:100%;display:block;\"/>"
                   + "</td></tr></table>"
                 : "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:" + branding.secondaryColor() + ";padding:24px 40px;\">"
-                  + "<img src=\"" + branding.logoUrl() + "\" alt=\"" + branding.companyName() + "\" style=\"height:34px;\"/>"
-                  + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">" + branding.tagline() + "</div>"
+                  + "<img src=\"" + logoUrl + "\" alt=\"" + companyName + "\" style=\"height:34px;\"/>"
+                  + "<div style=\"color:#9a9a9a;font-size:9px;letter-spacing:2px;margin-top:8px;\">" + tagline + "</div>"
                   + "</td></tr></table>";
         return "<html><head><meta charset=\"UTF-8\"/></head>"
                 + "<body style=\"margin:0;padding:0;font-family:" + branding.fontFamily() + ";color:#1a1a1a;\">"
@@ -224,5 +235,9 @@ public class DocumentGenerationService {
                 + footerText
                 + "</td></tr></table>"
                 + "</body></html>";
+    }
+
+    private String nullToEmpty(String value) {
+        return value != null ? value : "";
     }
 }

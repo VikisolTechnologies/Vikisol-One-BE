@@ -159,16 +159,26 @@ public class BlockRenderer {
             default -> null;
         };
         if (url == null || url.isBlank()) return "";
-        return "<img src=\"" + url + "\" style=\"max-height:60px;max-width:160px;\"/>";
+        return "<img src=\"" + escapeXml(url) + "\" style=\"max-height:60px;max-width:160px;\"/>";
     }
 
     private String renderSealBlock(BrandingDto branding) {
         if (branding == null || branding.companySealUrl() == null || branding.companySealUrl().isBlank()) return "";
-        return "<div style=\"margin:12px 0;\"><img src=\"" + branding.companySealUrl() + "\" style=\"max-height:80px;max-width:120px;\"/></div>";
+        return "<div style=\"margin:12px 0;\"><img src=\"" + escapeXml(branding.companySealUrl()) + "\" style=\"max-height:80px;max-width:120px;\"/></div>";
     }
 
+    // Escaped here (not left to DocumentGenerationService.substitute()) because static authored
+    // text - a heading/paragraph/table cell typed straight into Document Studio, no
+    // {{Placeholder}} involved at all - never passes through substitute(); a literal "&" in
+    // authored text (e.g. "Terms & Conditions", "PF & ESI") broke strict-XML PDF rendering with
+    // no way to fix it from the template editor. {{Placeholder}} tokens are untouched since they
+    // only contain letters.
     private String str(Map<String, Object> block, String key) {
         Object value = block.get(key);
-        return value != null ? value.toString() : "";
+        return value != null ? escapeXml(value.toString()) : "";
+    }
+
+    private String escapeXml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
