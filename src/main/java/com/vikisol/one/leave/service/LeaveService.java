@@ -174,6 +174,16 @@ public class LeaveService {
         Employee approver = employeeRepository.findByUserId(principal.getId())
                 .orElseThrow(() -> new RuntimeException("Approver employee not found"));
 
+        // Role check alone (@PreAuthorize on the controller) let any MANAGER approve/reject any
+        // employee's leave company-wide - only that employee's actual reporting manager (or
+        // HR_MANAGER/CEO, who oversee everyone) may act on it.
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isCompanyWide && !approver.getId().equals(leaveRequest.getEmployee().getReportingManagerId())) {
+            throw new com.vikisol.one.common.exception.BadRequestException(
+                    "You can only act on leave requests from your own direct reports");
+        }
+
         if ("APPROVE".equalsIgnoreCase(request.action())) {
             leaveRequest.setStatus(LeaveRequest.LeaveStatus.APPROVED);
             leaveRequest.setApprovedById(approver.getId());

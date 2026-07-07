@@ -64,6 +64,12 @@ public class AuthService {
     private static final String RESET_TOKEN_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    // Forgot-password had no throttle at all - unlimited requests for the same email would each
+    // send a real email (spam/email-bombing vector) and hammer the mail provider. In-memory is
+    // fine for a single-instance deployment; a shared cache would be needed behind a load balancer.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Instant> FORGOT_PASSWORD_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Duration FORGOT_PASSWORD_COOLDOWN = Duration.ofMinutes(2);
+
     @Transactional
     public AuthResponse login(LoginRequest request) {
         // Safety guard: never actually honor "email+password disabled" while Microsoft login isn't
@@ -152,6 +158,17 @@ public class AuthService {
     @Transactional
     public void forgotPassword(ForgotPasswordRequest request) {
         String officialEmail = request.officialEmail().trim().toLowerCase();
+
+        // Silently no-op instead of throwing, so this still doesn't leak whether the email exists
+        // (matches the rest of this method's "always success-shaped" behavior) while still
+        // actually stopping the repeat send.
+        Instant lastRequest = FORGOT_PASSWORD_LAST_REQUEST.get(officialEmail);
+        if (lastRequest != null && lastRequest.plus(FORGOT_PASSWORD_COOLDOWN).isAfter(Instant.now())) {
+            log.info("Forgot-password requested for {} again within the cooldown window - ignored", officialEmail);
+            return;
+        }
+        FORGOT_PASSWORD_LAST_REQUEST.put(officialEmail, Instant.now());
+
         User user = userRepository.findByEmail(officialEmail).orElse(null);
         if (user == null) {
             log.info("Forgot-password requested for an email with no matching account: {}", officialEmail);

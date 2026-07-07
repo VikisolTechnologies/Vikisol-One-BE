@@ -128,6 +128,29 @@ public class AttendanceService {
                 .toList();
     }
 
+    // Public controller entry point - enforces that a plain MANAGER may only request a summary
+    // for one of their own direct reports (CEO/HR_MANAGER/ADMIN may request any employee's).
+    // Previously this had no scoping at all: any MANAGER account could read any employee's
+    // attendance summary company-wide just by changing the path variable.
+    @Transactional(readOnly = true)
+    public MonthlyAttendanceSummary getMonthlyAttendanceSummary(UUID employeeId, int year, int month, UserPrincipal principal) {
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isCompanyWide) {
+            Employee manager = employeeRepository.findByUserId(principal.getId())
+                    .orElseThrow(() -> new RuntimeException("Employee not found"));
+            Employee target = employeeRepository.findById(employeeId)
+                    .orElseThrow(() -> new RuntimeException("Employee not found"));
+            if (!manager.getId().equals(target.getReportingManagerId())) {
+                throw new com.vikisol.one.common.exception.BadRequestException(
+                        "You can only view attendance summaries for your own direct reports");
+            }
+        }
+        return getMonthlyAttendanceSummary(employeeId, year, month);
+    }
+
+    // Trusted internal callers only (e.g. EmployeeDashboardService building an employee's own
+    // dashboard - already permission-checked by that controller's self-or-privileged guard).
     @Transactional(readOnly = true)
     public MonthlyAttendanceSummary getMonthlyAttendanceSummary(UUID employeeId, int year, int month) {
         YearMonth yearMonth = YearMonth.of(year, month);
@@ -207,6 +230,16 @@ public class AttendanceService {
 
         Employee approver = employeeRepository.findByUserId(principal.getId())
                 .orElseThrow(() -> new RuntimeException("Approver not found"));
+
+        // Role check alone (@PreAuthorize on the controller) let any MANAGER approve/reject any
+        // other team's regularization request - only that employee's actual reporting manager
+        // (or HR_MANAGER/CEO/ADMIN, who oversee everyone) may act on it.
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isCompanyWide && !approver.getId().equals(regularization.getEmployee().getReportingManagerId())) {
+            throw new com.vikisol.one.common.exception.BadRequestException(
+                    "You can only act on regularization requests from your own direct reports");
+        }
 
         if ("APPROVE".equalsIgnoreCase(request.action())) {
             regularization.setStatus(AttendanceRegularization.RegularizationStatus.APPROVED);

@@ -1,11 +1,16 @@
 package com.vikisol.one.common.controller;
 
 import com.vikisol.one.common.dto.ApiResponse;
+import com.vikisol.one.common.exception.BadRequestException;
 import com.vikisol.one.common.service.FileModule;
 import com.vikisol.one.common.service.FileStorageService;
+import com.vikisol.one.employee.entity.Employee;
+import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -14,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class FileController {
 
     private final FileStorageService fileStorageService;
+    private final EmployeeRepository employeeRepository;
 
     // Returns a real, absolute Cloudinary URL - files are served directly from Cloudinary's CDN,
     // not proxied through this server, so there's no matching GET /files/** endpoint anymore.
@@ -25,7 +31,19 @@ public class FileController {
     public ResponseEntity<ApiResponse<String>> uploadFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam String entityId,
-            @RequestParam(defaultValue = "documents") String documentType) {
+            @RequestParam(defaultValue = "documents") String documentType,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        // Previously anyone authenticated could upload into any other employee's folder just by
+        // supplying a different entityId - now requires self, or CEO/HR/Admin uploading on
+        // someone's behalf, matching DocumentService.uploadDocument's boundary.
+        boolean privileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!privileged) {
+            Employee self = employeeRepository.findByUserId(principal.getId()).orElse(null);
+            if (self == null || !self.getId().toString().equals(entityId)) {
+                throw new BadRequestException("You can only upload files to your own profile");
+            }
+        }
         String fileUrl = fileStorageService.storeFile(file, FileModule.EMPLOYEE, entityId, documentType);
         return ResponseEntity.ok(new ApiResponse<>(true, "File uploaded", fileUrl));
     }

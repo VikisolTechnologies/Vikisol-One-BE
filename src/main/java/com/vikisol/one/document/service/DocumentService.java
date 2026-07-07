@@ -173,9 +173,22 @@ public class DocumentService {
     // identically. Per Cloudinary's own docs this setting must be disabled in the account
     // dashboard (Settings -> Security -> Restricted media types) - once that's done, this plain
     // fetch will work with no further code changes.
-    public DownloadedFile downloadDocument(UUID id) {
+    public DownloadedFile downloadDocument(UUID id, UserPrincipal principal) {
         Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Document not found with id: " + id));
+        // This proxy returns the raw file bytes (PAN/Aadhaar/bank-proof scans included) - it must
+        // enforce the exact same self/role/type boundary as getEmployeeDocuments, which previously
+        // only gated the metadata *listing*; the actual byte-returning download endpoint had no
+        // check at all, so any authenticated employee could download any other employee's ID
+        // proof or salary documents just by guessing/discovering a document UUID.
+        UUID employeeId = document.getEmployee().getId();
+        boolean self = isSelf(employeeId, principal);
+        boolean fullAccess = hasRole(principal, "CEO") || hasRole(principal, "HR_MANAGER") || hasRole(principal, "ADMIN");
+        boolean isFinance = hasRole(principal, "FINANCE") && FINANCE_VISIBLE_TYPES.contains(document.getType());
+        boolean isManager = hasRole(principal, "MANAGER") && !MANAGER_HIDDEN_TYPES.contains(document.getType());
+        if (!self && !fullAccess && !isFinance && !isManager) {
+            throw new BadRequestException("You do not have permission to download this document");
+        }
         // Real bug, confirmed live: for a document whose stored fileUrl is null or missing a
         // scheme (a relative path from a legacy/broken upload, not a real Cloudinary URL),
         // URI.create() throws IllegalArgumentException("URI with undefined scheme") - previously

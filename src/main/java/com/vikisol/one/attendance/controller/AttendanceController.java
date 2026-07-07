@@ -70,8 +70,9 @@ public class AttendanceController {
     public ResponseEntity<ApiResponse<MonthlyAttendanceSummary>> getMonthlyAttendanceSummary(
             @PathVariable UUID employeeId,
             @RequestParam int year,
-            @RequestParam int month) {
-        MonthlyAttendanceSummary summary = attendanceService.getMonthlyAttendanceSummary(employeeId, year, month);
+            @RequestParam int month,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        MonthlyAttendanceSummary summary = attendanceService.getMonthlyAttendanceSummary(employeeId, year, month, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Monthly summary retrieved", summary));
     }
 

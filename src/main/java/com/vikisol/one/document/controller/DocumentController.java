@@ -44,8 +44,8 @@ public class DocumentController {
     // redirect to Cloudinary with a transformation flag (that path is blocked by a Cloudinary
     // account setting we don't control).
     @GetMapping("/{id}/download")
-    public ResponseEntity<byte[]> downloadDocument(@PathVariable UUID id) {
-        DocumentService.DownloadedFile file = documentService.downloadDocument(id);
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
+        DocumentService.DownloadedFile file = documentService.downloadDocument(id, principal);
         String encodedName = java.net.URLEncoder.encode(file.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(file.mimeType()))
