@@ -80,8 +80,14 @@ public class AuthService {
 
         if (user != null && user.getLockedUntil() != null) {
             if (user.getLockedUntil().isAfter(Instant.now())) {
-                throw new BadRequestException("Too many failed login attempts. Please try again after "
-                        + Duration.between(Instant.now(), user.getLockedUntil()).toMinutes() + " minute(s).");
+                // toMinutes() truncates towards zero, so any remaining time under 60 seconds
+                // (which still legitimately fails the isAfter check above) rendered as the
+                // nonsensical "try again after 0 minute(s)" right up until the lockout actually
+                // expired. Round up instead, and use clearer wording for the sub-minute case.
+                long secondsLeft = Duration.between(Instant.now(), user.getLockedUntil()).getSeconds();
+                long minutesLeft = (secondsLeft + 59) / 60;
+                String wait = minutesLeft <= 1 ? "less than a minute" : minutesLeft + " minutes";
+                throw new BadRequestException("Too many failed login attempts. Please try again after " + wait + ".");
             }
             // Lockout window has passed - clear it so this attempt is evaluated normally.
             user.setLockedUntil(null);

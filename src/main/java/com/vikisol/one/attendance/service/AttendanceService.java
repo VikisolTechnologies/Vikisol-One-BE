@@ -241,15 +241,41 @@ public class AttendanceService {
 
         List<Attendance> records = attendanceRepository.findByDate(date);
 
+        List<Employee> scopeEmployees;
         if (!isCompanyWide) {
             Employee manager = employeeRepository.findByUserId(principal.getId())
                     .orElseThrow(() -> new RuntimeException("Employee not found"));
             records = records.stream()
                     .filter(a -> manager.getId().equals(a.getEmployee().getReportingManagerId()))
                     .toList();
+            scopeEmployees = employeeRepository.findByReportingManagerId(manager.getId());
+        } else {
+            scopeEmployees = employeeRepository.findAll();
         }
 
-        return records.stream().map(this::mapToResponse).toList();
+        List<AttendanceResponse> result = new java.util.ArrayList<>(records.stream().map(this::mapToResponse).toList());
+
+        // For TODAY only: markAbsentees() is a scheduled end-of-day job, so an employee who simply
+        // hasn't punched in *yet* has no Attendance row at all right now - they were previously
+        // just missing from this list entirely, making "Present Today"/"Absent Today" KPIs look
+        // artificially tiny (e.g. 1 present, 0 absent) compared to the real headcount, while a
+        // fully-elapsed past day (which the batch job has already run for) showed the true counts.
+        // Synthesizing a transient (unsaved) ABSENT entry for the rest of today's scope closes
+        // that gap without waiting for the nightly job.
+        if (date.equals(LocalDate.now()) && date.getDayOfWeek() != DayOfWeek.SATURDAY && date.getDayOfWeek() != DayOfWeek.SUNDAY) {
+            java.util.Set<UUID> alreadyRecorded = records.stream().map(a -> a.getEmployee().getId()).collect(java.util.stream.Collectors.toSet());
+            scopeEmployees.stream()
+                    .filter(Employee::isActive)
+                    .filter(e -> !alreadyRecorded.contains(e.getId()))
+                    .forEach(e -> result.add(mapToResponse(Attendance.builder()
+                            .employee(e)
+                            .date(date)
+                            .status(Attendance.AttendanceStatus.ABSENT)
+                            .source(Attendance.AttendanceSource.MANUAL)
+                            .build())));
+        }
+
+        return result;
     }
 
     public void markAbsentees(LocalDate date) {
