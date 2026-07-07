@@ -10,7 +10,10 @@ public record AuthSettingsDto(
         // MicrosoftAuthController's fallback-disable behavior.
         boolean microsoftLoginConfigured,
         boolean googleLoginEnabled,       // future - always false today, no Google OAuth built
-        boolean mfaEnabled,               // future - always false today, no MFA built
+        // Org-wide MFA feature flag - whether MFA enrollment is offered at all. Per-user
+        // enforcement is separate (MfaSecret.enabled) - this doesn't force anyone to enroll, it
+        // just hides/shows the enrollment UI. See mfaNudgedRoles for who gets nudged to enroll.
+        boolean mfaEnabled,
         boolean accountLockoutEnabled,
         int maxFailedLoginAttempts,
         int lockoutDurationMinutes,
@@ -21,5 +24,8 @@ public record AuthSettingsDto(
         boolean passwordRequireLowercase,
         boolean passwordRequireNumber,
         boolean passwordRequireSpecialChar,
-        int passwordHistoryCount          // 0 = reuse of old passwords not restricted
+        int passwordHistoryCount,         // 0 = reuse of old passwords not restricted
+        boolean loginAlertsEnabled,       // email the employee when a login succeeds from a device/IP never seen before
+        Integer maxConcurrentSessions,    // null = unlimited; oldest session is revoked when exceeded
+        String mfaNudgedRoles             // comma-separated RoleEnum names shown a "please enable MFA" prompt
 ) {}

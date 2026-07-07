@@ -65,6 +65,8 @@ public class EmployeeService {
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final com.vikisol.one.session.service.ActiveSessionService activeSessionService;
+    private final com.vikisol.one.session.service.RefreshTokenService refreshTokenService;
     private final LeaveService leaveService;
     private final PdfService pdfService;
     private final FileStorageService fileStorageService;
@@ -457,6 +459,12 @@ public class EmployeeService {
         user.setPassword(passwordEncoder.encode(generateRandomToken()));
         user.setEnabled(false);
         userRepository.save(user);
+        // Disabling the account alone doesn't invalidate any cookie/session already issued to
+        // them - JwtAuthenticationFilter doesn't re-check `enabled` on every request (Spring
+        // Security only checks it during the original login). Revoke everything immediately so an
+        // admin-triggered reset takes effect right away, not just on their next login attempt.
+        activeSessionService.revokeAllForUser(user.getEmail());
+        refreshTokenService.revokeAllForUser(user.getEmail());
         issueActivationToken(user, employee.getPersonalEmail() != null ? employee.getPersonalEmail() : employee.getEmail());
         auditService.record("Password Reset", employee.getEmployeeId(),
                 "Password reset for " + employee.getFirstName() + " " + employee.getLastName());

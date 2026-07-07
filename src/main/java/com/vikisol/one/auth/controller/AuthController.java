@@ -4,7 +4,10 @@ import com.vikisol.one.auth.dto.*;
 import com.vikisol.one.auth.service.AuthService;
 import com.vikisol.one.common.dto.ApiResponse;
 import com.vikisol.one.security.service.UserPrincipal;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,10 +22,43 @@ public class AuthController {
 
     private final AuthService authService;
 
+    // Sets the access/refresh/CSRF cookies directly on the response (see CookieService) instead
+    // of returning them in the JSON body - see Phase 2 auth overhaul.
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
-        AuthResponse response = authService.login(request);
+    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request,
+                                                            HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        AuthResponse response = authService.login(request, httpRequest, httpResponse);
+        String message = response.mfaRequired() ? "Enter your verification code to continue" : "Login successful";
+        return ResponseEntity.ok(new ApiResponse<>(true, message, response));
+    }
+
+    public record MfaVerifyRequest(@NotBlank String challengeToken, @NotBlank String code, boolean remember) {}
+
+    // Second step of login when MFA is enabled for the account - see AuthService.login's MFA gate.
+    @PostMapping("/mfa/verify")
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyMfa(@Valid @RequestBody MfaVerifyRequest request,
+                                                                HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        AuthResponse response = authService.verifyMfaAndCompleteLogin(request.challengeToken(), request.code(), httpRequest, httpResponse, request.remember());
         return ResponseEntity.ok(new ApiResponse<>(true, "Login successful", response));
+    }
+
+    // Redeems the refresh cookie for a fresh access token - called automatically by the frontend
+    // on a 401, not something a user ever triggers directly. Doesn't require a valid access token
+    // (that's the point - the access token is expected to already be expired here).
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<AuthResponse>> refresh(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        AuthResponse response = authService.refresh(httpRequest, httpResponse);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Session refreshed", response));
+    }
+
+    // Real server-side logout (previously didn't exist at all - the frontend just discarded its
+    // localStorage token). Revokes the current session/refresh-token family and clears cookies.
+    // Deliberately tolerant of missing/expired cookies (idempotent) so "logout" always succeeds
+    // from the user's perspective even if their session had already expired server-side.
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        authService.logout(httpRequest, httpResponse);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Logged out", null));
     }
 
     @PostMapping("/change-password")

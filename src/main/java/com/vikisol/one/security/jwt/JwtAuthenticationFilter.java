@@ -1,5 +1,6 @@
 package com.vikisol.one.security.jwt;
 
+import com.vikisol.one.security.cookie.CookieService;
 import com.vikisol.one.security.service.CustomUserDetailsService;
 import com.vikisol.one.settings.service.AuthSettingsService;
 import jakarta.servlet.FilterChain;
@@ -30,6 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final CustomUserDetailsService userDetailsService;
     private final AuthSettingsService authSettingsService;
     private final com.vikisol.one.session.service.ActiveSessionService activeSessionService;
+    private final CookieService cookieService;
 
     // Requests a user with an expired password must still be able to make - everything else is
     // blocked with 403 until they change it. "/auth/login" isn't here since it's permitAll and
@@ -43,7 +45,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = getTokenFromRequest(request);
 
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+        if (StringUtils.hasText(token) && jwtTokenProvider.validateAccessToken(token)) {
             String email = jwtTokenProvider.getEmailFromToken(token);
             UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
@@ -90,11 +92,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    // Reads the access token from the __Host-access_token HttpOnly cookie - the Authorization
+    // header is no longer used at all (see the Phase 2 auth overhaul: cookies instead of
+    // localStorage, to remove the token from any surface an XSS payload could read).
     private String getTokenFromRequest(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");
-        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
-        }
-        return null;
+        return cookieService.readCookie(request, CookieService.ACCESS_COOKIE);
     }
 }

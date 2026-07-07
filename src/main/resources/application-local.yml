@@ -12,5 +12,5 @@ spring:
 app:
   jwt:
     secret: vikisolOneSecretKeyForJwtTokenGeneration2026MustBe256BitsLongAtLeast!!
-    expiration-ms: 86400000
+    expiration-ms: 900000
     refresh-expiration-ms: 604800000

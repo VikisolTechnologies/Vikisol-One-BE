@@ -234,6 +234,26 @@ public class EmailService {
                 + "Vikisol Technologies Pvt Ltd</p>";
     }
 
+    // Sent when a login succeeds from a device/IP never seen before for this user (see
+    // AuthService.maybeSendLoginAlert) - goes to the personal/recovery email, same reasoning as
+    // password-reset: if the official mailbox itself was compromised, the alert still reaches them.
+    public void sendNewLoginAlertEmail(String personalEmail, String name, String device, String ipAddress, String whenText) {
+        String subject = "New sign-in to your Vikisol One account";
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">New sign-in detected</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Dear " + name + ",</p>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">We noticed a sign-in to your Vikisol One account from a device we haven't seen before:</p>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f8f8f8;border-radius:8px;padding:16px;margin-bottom:20px;\">"
+                + rowHtml("Device", device)
+                + rowHtml("IP Address", ipAddress != null ? ipAddress : "Unknown")
+                + rowHtml("Time", whenText)
+                + "</table>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">If this was you, no action is needed.</p>"
+                + "<p style=\"margin:0;color:#444;\"><b>If this wasn't you</b>, please change your password immediately and review your active sessions in Vikisol One.</p>"
+                + signatureBlock("Regards", "Vikisol One Security");
+        sendHtmlEmail(personalEmail, subject, brandedTemplate("New sign-in to your account", body), EmailLog.Category.OTHER, null);
+    }
+
     public void sendLeaveApprovalNotification(String employeeEmail, String employeeName, String status, String leaveType, String dates) {
         String subject = "Leave " + status + " - " + leaveType;
         String body = String.format("Dear %s,\n\nYour %s request for %s has been %s.\n\nRegards,\nVikisol One HR", employeeName, leaveType, dates, status.toLowerCase());

@@ -54,7 +54,11 @@ app:
     # "safety net") is a real vulnerability: anyone with repo access could forge valid tokens for
     # any user, including CEO, in any environment that forgot to set this. Fail fast instead.
     secret: ${JWT_SECRET}
-    expiration-ms: 86400000
+    # Fallback only - the real access-token TTL is AuthSettingsDto.sessionTimeoutMinutes (CEO-
+    # configurable at runtime, default 15 min).
+    expiration-ms: 900000
+    # No longer read anywhere - refresh-token TTLs are now fixed constants in AuthService
+    # (12h default / 30d remember-me). Left in place harmlessly.
     refresh-expiration-ms: 604800000
 
   cors:

@@ -53,7 +53,11 @@ app:
     # Local-dev-only fallback (this file is never used in prod - see application-prod.yml, which
     # has no fallback and fails fast instead). Still, don't reuse this value anywhere real.
     secret: ${JWT_SECRET:local-dev-only-secret-do-not-use-in-any-deployed-environment}
-    expiration-ms: 86400000
+    # Fallback only - the real access-token TTL is AuthSettingsDto.sessionTimeoutMinutes (CEO-
+    # configurable at runtime, default 15 min).
+    expiration-ms: 900000
+    # No longer read anywhere - refresh-token TTLs are now fixed constants in AuthService
+    # (12h default / 30d remember-me). Left in place harmlessly.
     refresh-expiration-ms: 604800000
 
   cors:

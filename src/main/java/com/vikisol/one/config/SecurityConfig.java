@@ -1,5 +1,6 @@
 package com.vikisol.one.config;
 
+import com.vikisol.one.security.csrf.CsrfProtectionFilter;
 import com.vikisol.one.security.jwt.JwtAuthenticationEntryPoint;
 import com.vikisol.one.security.jwt.JwtAuthenticationFilter;
 import com.vikisol.one.security.service.CustomUserDetailsService;
@@ -29,6 +30,7 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationEntryPoint authenticationEntryPoint;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final CsrfProtectionFilter csrfProtectionFilter;
 
     // Real allowlist (set via CORS_ORIGINS) - previously this config value existed but was never
     // actually read; the filter chain below hardcoded a wildcard that accepted every origin instead.
@@ -55,6 +57,15 @@ public class SecurityConfig {
                         // (previously they were, which meant an unauthenticated call 500'd with a
                         // NullPointerException on the principal instead of a clean 401).
                         .requestMatchers("/auth/login").permitAll()
+                        // MFA's second login step - guarded by the short-lived MFA challenge token
+                        // itself (issued only after a correct password), not by a real session,
+                        // since no real session/cookie exists yet at this point in the flow.
+                        .requestMatchers("/auth/mfa/verify").permitAll()
+                        // Both must be reachable with an expired/missing access token by design -
+                        // that's the entire point of a refresh endpoint, and logout must always be
+                        // able to clear cookies/revoke a session even if the access token already
+                        // expired. Each validates its own cookie internally (see AuthService).
+                        .requestMatchers("/auth/refresh", "/auth/logout").permitAll()
                         // Public by necessity - the employee hasn't logged in yet when activating
                         // their account. Guarded by the token itself (random, single-use, expiring),
                         // not by session auth.
@@ -86,7 +97,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(csrfProtectionFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

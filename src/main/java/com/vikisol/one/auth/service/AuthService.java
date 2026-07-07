@@ -3,10 +3,12 @@ package com.vikisol.one.auth.service;
 import com.vikisol.one.audit.service.AuditService;
 import com.vikisol.one.auth.dto.*;
 import com.vikisol.one.auth.entity.ActivationToken;
+import com.vikisol.one.auth.entity.LoginHistoryEntry;
 import com.vikisol.one.auth.entity.PasswordHistoryEntry;
 import com.vikisol.one.auth.entity.PasswordResetToken;
 import com.vikisol.one.auth.entity.User;
 import com.vikisol.one.auth.repository.ActivationTokenRepository;
+import com.vikisol.one.auth.repository.LoginHistoryEntryRepository;
 import com.vikisol.one.auth.repository.PasswordHistoryEntryRepository;
 import com.vikisol.one.auth.repository.PasswordResetTokenRepository;
 import com.vikisol.one.auth.repository.UserRepository;
@@ -14,8 +16,14 @@ import com.vikisol.one.common.exception.BadRequestException;
 import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.mfa.service.MfaService;
+import com.vikisol.one.security.cookie.CookieService;
 import com.vikisol.one.security.jwt.JwtTokenProvider;
 import com.vikisol.one.security.service.UserPrincipal;
+import com.vikisol.one.session.service.ActiveSessionService;
+import com.vikisol.one.session.service.RefreshTokenService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
@@ -52,7 +63,11 @@ public class AuthService {
     private final PasswordPolicy passwordPolicy;
     private final PasswordHistoryEntryRepository passwordHistoryEntryRepository;
     private final LoginHistoryService loginHistoryService;
-    private final com.vikisol.one.session.service.ActiveSessionService activeSessionService;
+    private final LoginHistoryEntryRepository loginHistoryEntryRepository;
+    private final ActiveSessionService activeSessionService;
+    private final RefreshTokenService refreshTokenService;
+    private final MfaService mfaService;
+    private final CookieService cookieService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -64,6 +79,9 @@ public class AuthService {
     private static final String RESET_TOKEN_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    private static final Duration REMEMBER_REFRESH_TTL = Duration.ofDays(30);
+    private static final Duration DEFAULT_REFRESH_TTL = Duration.ofHours(12);
+
     // Forgot-password had no throttle at all - unlimited requests for the same email would each
     // send a real email (spam/email-bombing vector) and hammer the mail provider. In-memory is
     // fine for a single-instance deployment; a shared cache would be needed behind a load balancer.
@@ -71,7 +89,7 @@ public class AuthService {
     private static final Duration FORGOT_PASSWORD_COOLDOWN = Duration.ofMinutes(2);
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         // Safety guard: never actually honor "email+password disabled" while Microsoft login isn't
         // configured (no real Azure app credentials exist in this deployment yet) - that combination
         // would lock every single employee out of the system with no working alternative. Only
@@ -107,27 +125,176 @@ public class AuthService {
                     new UsernamePasswordAuthenticationToken(email, request.password())
             );
         } catch (BadCredentialsException e) {
-            loginHistoryService.record(email, com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.LOGIN_FAILED, false);
+            loginHistoryService.record(email, LoginHistoryEntry.EventType.LOGIN_FAILED, false);
             if (user != null) {
                 loginLockoutService.recordFailedAttempt(user);
             }
             throw e;
         }
 
-        String token = jwtTokenProvider.generateToken(authentication);
-        String refreshToken = jwtTokenProvider.generateTokenFromEmail(email);
-
         User authedUser = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadRequestException("User not found"));
+
+        // MFA gate: password was correct, but a second factor is required before any real session
+        // is created. No cookies, no ActiveSession, no RefreshToken yet - just a short-lived
+        // challenge token distinct in kind from a real access token (see JwtTokenProvider).
+        if (mfaService.isEnabled(authedUser.getId())) {
+            loginHistoryService.record(email, LoginHistoryEntry.EventType.MFA_CHALLENGE_ISSUED, true);
+            return AuthResponse.mfaChallenge(jwtTokenProvider.generateMfaChallengeToken(email));
+        }
+
+        return completeLogin(authedUser, authSettings, httpRequest, httpResponse, request.remember());
+    }
+
+    @Transactional
+    public AuthResponse verifyMfaAndCompleteLogin(String challengeToken, String code, HttpServletRequest httpRequest, HttpServletResponse httpResponse, boolean remember) {
+        if (!jwtTokenProvider.validateMfaChallengeToken(challengeToken)) {
+            throw new BadRequestException("This login attempt has expired. Please sign in again.");
+        }
+        String email = jwtTokenProvider.getEmailFromToken(challengeToken);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BadRequestException("This login attempt has expired. Please sign in again."));
+
+        if (!mfaService.verifyLogin(user.getId(), code.trim())) {
+            loginHistoryService.record(email, LoginHistoryEntry.EventType.MFA_VERIFY_FAILED, false);
+            throw new BadRequestException("Invalid or expired code. Please try again.");
+        }
+
+        return completeLogin(user, authSettingsService.getSettings(), httpRequest, httpResponse, remember);
+    }
+
+    // Shared tail of both the plain-password and post-MFA login paths: issues the real access +
+    // refresh cookies, creates the ActiveSession, enforces a concurrent-session cap if configured,
+    // sends a new-device alert if warranted, and records the successful login everywhere the rest
+    // of the app already expects it (audit log, login history).
+    private AuthResponse completeLogin(User authedUser, com.vikisol.one.settings.dto.AuthSettingsDto authSettings,
+                                        HttpServletRequest httpRequest, HttpServletResponse httpResponse, boolean remember) {
+        String email = authedUser.getEmail();
+        String ip = extractClientIp(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+
+        Integer maxConcurrent = authSettings.maxConcurrentSessions();
+        if (maxConcurrent != null && maxConcurrent > 0) {
+            activeSessionService.enforceConcurrentLimit(email, maxConcurrent - 1);
+        }
+
+        Duration accessTtl = Duration.ofMinutes(Math.max(1, authSettings.sessionTimeoutMinutes()));
+        String accessToken = jwtTokenProvider.generateAccessToken(email, accessTtl);
+        String jti = jwtTokenProvider.getJtiFromToken(accessToken);
+
+        activeSessionService.recordLogin(email, jti);
+
+        Duration refreshTtl = remember ? REMEMBER_REFRESH_TTL : DEFAULT_REFRESH_TTL;
+        var issued = refreshTokenService.issueForNewFamily(email, Instant.now().plus(refreshTtl), ip, userAgent, jti);
+
+        String csrfToken = cookieService.generateCsrfToken();
+        cookieService.setAll(httpResponse, accessToken, accessTtl, issued.rawValue(), refreshTtl, remember, csrfToken);
+
         authedUser.setLastLoginAt(Instant.now());
         userRepository.save(authedUser);
-        auditService.record("Login Succeeded", authedUser.getEmail(), null);
-        loginHistoryService.record(email, com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.LOGIN_SUCCESS, true);
-        activeSessionService.recordLogin(email, jwtTokenProvider.getJtiFromToken(token));
+        auditService.record("Login Succeeded", email, null);
+
+        Instant loginMoment = Instant.now();
+        maybeSendLoginAlert(authedUser, ip, userAgent, authSettings, loginMoment);
+        loginHistoryService.record(email, LoginHistoryEntry.EventType.LOGIN_SUCCESS, true);
 
         boolean passwordExpired = isPasswordExpired(authedUser, authSettings);
-        return new AuthResponse(token, refreshToken, authedUser.getEmail(),
-                authedUser.getRole().name(), authedUser.getFirstName(), authedUser.getLastName(), passwordExpired);
+        return new AuthResponse(authedUser.getEmail(), authedUser.getRole().name(),
+                authedUser.getFirstName(), authedUser.getLastName(), passwordExpired, false, null);
+    }
+
+    // Login Alerts: if we've never recorded a successful login from this exact (IP, User-Agent)
+    // pair for this user before, treat it as a new device/location and email a heads-up to their
+    // personal/recovery address (same reasoning as password-reset emails going to the personal
+    // inbox: if the official mailbox itself is what's compromised, the alert still gets through).
+    private void maybeSendLoginAlert(User user, String ip, String userAgent, com.vikisol.one.settings.dto.AuthSettingsDto authSettings, Instant asOf) {
+        if (!authSettings.loginAlertsEnabled()) return;
+        if (ip == null && userAgent == null) return;
+        LocalDateTime cutoff = LocalDateTime.ofInstant(asOf, ZoneId.systemDefault());
+        boolean seenBefore = loginHistoryEntryRepository.existsByUserEmailAndIpAddressAndUserAgentAndEventTypeAndSuccessTrueAndCreatedAtBefore(
+                user.getEmail(), ip, userAgent, LoginHistoryEntry.EventType.LOGIN_SUCCESS, cutoff);
+        if (seenBefore) return;
+
+        Employee employee = employeeRepository.findByUserId(user.getId()).orElse(null);
+        String personalEmail = employee != null ? employee.getPersonalEmail() : null;
+        if (personalEmail == null || personalEmail.isBlank()) return;
+
+        String device = com.vikisol.one.session.util.DeviceInfoParser.parse(userAgent);
+        String whenText = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm").format(cutoff);
+        try {
+            emailService.sendNewLoginAlertEmail(personalEmail, user.getFirstName(), device, ip, whenText);
+        } catch (Exception e) {
+            // Never let an alert-email failure block the login itself.
+            log.warn("Could not send new-device login alert to {}: {}", user.getEmail(), e.getMessage());
+        }
+    }
+
+    // POST /auth/refresh - redeems the refresh cookie for a fresh access token, rotating the
+    // refresh token itself in the process (see RefreshTokenService.rotate for the reuse-detection
+    // design). Deliberately does NOT require a valid access token (that's the whole point - the
+    // access token is expected to be expired/near-expired when this is called).
+    @Transactional
+    public AuthResponse refresh(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        String presented = cookieService.readCookie(httpRequest, CookieService.REFRESH_COOKIE);
+        if (presented == null) {
+            cookieService.clearAll(httpResponse);
+            throw new BadCredentialsException("Session expired. Please sign in again.");
+        }
+
+        String ip = extractClientIp(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+        var authSettings = authSettingsService.getSettings();
+        Duration accessTtl = Duration.ofMinutes(Math.max(1, authSettings.sessionTimeoutMinutes()));
+
+        var rotation = refreshTokenService.rotate(presented, Instant.now(), ip, userAgent);
+        if (!rotation.success()) {
+            cookieService.clearAll(httpResponse);
+            if (rotation.reuseDetected() && rotation.userEmail() != null) {
+                activeSessionService.revokeAllForUser(rotation.userEmail());
+                refreshTokenService.revokeAllForUser(rotation.userEmail());
+                loginHistoryService.record(rotation.userEmail(), LoginHistoryEntry.EventType.SESSION_REUSE_DETECTED, false);
+                auditService.record("Refresh Token Reuse Detected", rotation.userEmail(), "All sessions revoked as a precaution");
+            }
+            throw new BadCredentialsException("Session expired. Please sign in again.");
+        }
+
+        String email = rotation.userEmail();
+        String newAccessToken = jwtTokenProvider.generateAccessToken(email, accessTtl);
+        String newJti = jwtTokenProvider.getJtiFromToken(newAccessToken);
+        refreshTokenService.updateSessionJti(rotation.newToken(), newJti);
+
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new BadCredentialsException("Session expired. Please sign in again."));
+        activeSessionService.recordLogin(email, newJti);
+
+        boolean wasRemember = Duration.between(rotation.newToken().getIssuedAt(), rotation.newToken().getExpiresAt()).compareTo(Duration.ofDays(1)) > 0;
+        Duration refreshRemaining = Duration.between(Instant.now(), rotation.newToken().getExpiresAt());
+        if (refreshRemaining.isNegative()) refreshRemaining = Duration.ZERO;
+        String csrfToken = cookieService.generateCsrfToken();
+        cookieService.setAll(httpResponse, newAccessToken, accessTtl, rotation.rawValue(), refreshRemaining, wasRemember, csrfToken);
+
+        boolean passwordExpired = isPasswordExpired(user, authSettings);
+        return new AuthResponse(user.getEmail(), user.getRole().name(), user.getFirstName(), user.getLastName(), passwordExpired, false, null);
+    }
+
+    @Transactional
+    public void logout(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        String accessToken = cookieService.readCookie(httpRequest, CookieService.ACCESS_COOKIE);
+        String refreshToken = cookieService.readCookie(httpRequest, CookieService.REFRESH_COOKIE);
+
+        if (accessToken != null && jwtTokenProvider.validateToken(accessToken)) {
+            try {
+                String jti = jwtTokenProvider.getJtiFromToken(accessToken);
+                activeSessionService.revokeByJti(jti);
+                String email = jwtTokenProvider.getEmailFromToken(accessToken);
+                loginHistoryService.record(email, LoginHistoryEntry.EventType.LOGOUT, true);
+            } catch (Exception ignored) {
+                // Token present but unparsable/expired - still fine, we're clearing cookies regardless.
+            }
+        }
+        if (refreshToken != null) {
+            refreshTokenService.revokeFamilyContaining(refreshToken);
+        }
+        cookieService.clearAll(httpResponse);
     }
 
     @Transactional
@@ -147,6 +314,7 @@ public class AuthService {
         userRepository.save(user);
         recordPasswordHistory(user, newHash);
         passwordResetTokenRepository.invalidateAllForUser(user);
+        revokeAllSessionsAndRefreshTokens(user.getEmail());
         auditService.record("Password Changed", user.getEmail(), null);
         emailService.sendPasswordChangedEmail(user.getEmail(), user.getFirstName(), Instant.now().toString());
     }
@@ -192,7 +360,7 @@ public class AuthService {
         String resetLink = frontendUrl + "/reset-password?token=" + token;
         emailService.sendPasswordResetEmail(personalEmail, user.getFirstName(), user.getEmail(), resetLink);
         auditService.record("Password Reset Requested", user.getEmail(), "Reset link sent to linked personal email");
-        loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.PASSWORD_RESET_REQUESTED, true);
+        loginHistoryService.record(user.getEmail(), LoginHistoryEntry.EventType.PASSWORD_RESET_REQUESTED, true);
     }
 
     @Transactional(readOnly = true)
@@ -229,10 +397,20 @@ public class AuthService {
         passwordResetTokenRepository.save(resetToken);
         // Any other still-outstanding reset link for this user (e.g. requested twice) is now stale.
         passwordResetTokenRepository.invalidateAllForUser(user);
+        revokeAllSessionsAndRefreshTokens(user.getEmail());
 
         auditService.record("Password Reset Completed", user.getEmail(), null);
-        loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.PASSWORD_RESET_COMPLETED, true);
+        loginHistoryService.record(user.getEmail(), LoginHistoryEntry.EventType.PASSWORD_RESET_COMPLETED, true);
         emailService.sendPasswordChangedEmail(user.getEmail(), user.getFirstName(), Instant.now().toString());
+    }
+
+    // Session Rotation: any password change/reset is a real, immediate "log out everywhere" - not
+    // just the lazy passwordChangedAt-vs-token-issuedAt check on the next request, which only
+    // catches stale ACCESS tokens. Without this, a leaked refresh token would keep silently
+    // minting fresh access tokens even after the legitimate owner changed their password.
+    private void revokeAllSessionsAndRefreshTokens(String email) {
+        activeSessionService.revokeAllForUser(email);
+        refreshTokenService.revokeAllForUser(email);
     }
 
     // Password History: blocks reuse of the last N passwords (N = AuthSettingsDto.passwordHistoryCount(),
@@ -310,7 +488,15 @@ public class AuthService {
         activationToken.setUsed(true);
         activationTokenRepository.save(activationToken);
         auditService.record("Account Activated", user.getEmail(), null);
-        loginHistoryService.record(user.getEmail(), com.vikisol.one.auth.entity.LoginHistoryEntry.EventType.ACCOUNT_ACTIVATED, true);
+        loginHistoryService.record(user.getEmail(), LoginHistoryEntry.EventType.ACCOUNT_ACTIVATED, true);
         emailService.sendWelcomeEmail(user.getEmail(), user.getFirstName());
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

@@ -68,13 +68,23 @@ public class ActiveSessionService {
     }
 
     // requireOwnerEmail null = no ownership restriction (admin path); non-null = only revoke if
-    // the session actually belongs to that user.
+    // the session actually belongs to that user. Returns the revoked session's jti (so the caller
+    // can also revoke the matching refresh-token family), or null if nothing was revoked.
     @Transactional
-    public void revoke(UUID sessionId, String requireOwnerEmail) {
-        repository.findById(sessionId).ifPresent(s -> {
+    public String revoke(UUID sessionId, String requireOwnerEmail) {
+        return repository.findById(sessionId).map(s -> {
             if (requireOwnerEmail != null && !requireOwnerEmail.equalsIgnoreCase(s.getUserEmail())) {
-                return;
+                return null;
             }
+            s.setRevoked(true);
+            repository.save(s);
+            return s.getJti();
+        }).orElse(null);
+    }
+
+    @Transactional
+    public void revokeByJti(String jti) {
+        repository.findByJti(jti).ifPresent(s -> {
             s.setRevoked(true);
             repository.save(s);
         });
@@ -83,6 +93,21 @@ public class ActiveSessionService {
     @Transactional
     public void revokeAllForUser(String userEmail) {
         repository.revokeAllForUser(userEmail);
+    }
+
+    // Concurrent Session Limits: if the user is about to have more than `maxAllowedBeforeNewOne`
+    // sessions once this new login completes, revoke their oldest sessions first - the standard
+    // "N device limit" behavior. Called BEFORE recordLogin() so the new session isn't counted
+    // against its own limit.
+    @Transactional
+    public void enforceConcurrentLimit(String userEmail, int maxAllowedBeforeNewOne) {
+        List<com.vikisol.one.session.entity.ActiveSession> current = listForUser(userEmail);
+        if (current.size() <= maxAllowedBeforeNewOne) return;
+        // listForUser is ordered by lastActivityAt DESC - the tail is the oldest.
+        for (int i = maxAllowedBeforeNewOne; i < current.size(); i++) {
+            current.get(i).setRevoked(true);
+            repository.save(current.get(i));
+        }
     }
 
     private String extractClientIp(HttpServletRequest request) {

@@ -34,6 +34,12 @@ public class LoginHistoryEntry extends BaseEntity {
 
     public enum EventType {
         LOGIN_SUCCESS, LOGIN_FAILED, PASSWORD_RESET_REQUESTED, PASSWORD_RESET_COMPLETED,
-        ACCOUNT_LOCKED, ACCOUNT_UNLOCKED, ACCOUNT_ACTIVATED, LOGOUT, SESSION_EXPIRED
+        ACCOUNT_LOCKED, ACCOUNT_UNLOCKED, ACCOUNT_ACTIVATED, LOGOUT, SESSION_EXPIRED,
+        // A revoked (already-rotated-away) refresh token was presented again - see
+        // RefreshTokenService.rotate. Strong signal of a stolen/copied token; the whole session
+        // family is revoked automatically when this happens.
+        SESSION_REUSE_DETECTED,
+        // MFA challenge issued (password correct, code not yet verified) / a wrong code entered.
+        MFA_CHALLENGE_ISSUED, MFA_VERIFY_FAILED
     }
 }
