@@ -12,6 +12,8 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
 
     List<ProjectMember> findByProjectId(UUID projectId);
 
+    List<ProjectMember> findByProjectIdAndIsActiveTrue(UUID projectId);
+
     List<ProjectMember> findByEmployeeId(UUID employeeId);
 
     List<ProjectMember> findByEmployeeIdAndIsActiveTrue(UUID employeeId);

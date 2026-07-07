@@ -171,8 +171,18 @@ public class EmployeeService {
         if (v.uanExists()) throw new RuntimeException("This UAN is already in use");
     }
 
+    // Server-side backstop for the official-email-domain check - the frontend already restricts
+    // this, but a direct API call (bypassing the UI entirely) must not be able to create an
+    // employee whose login/official email isn't a real company address.
+    private void assertOfficialEmailDomain(String email) {
+        if (email != null && !email.trim().toLowerCase().endsWith("@vikisol.in")) {
+            throw new RuntimeException("Official email must be a @vikisol.in company address");
+        }
+    }
+
     @Transactional
     public EmployeeResponse createEmployee(EmployeeRequest request) {
+        assertOfficialEmailDomain(request.email());
         assertFieldsNotTaken(request);
         String nextEmployeeId = generateNextEmployeeId();
 
@@ -258,6 +268,7 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeResponse updateEmployee(UUID id, EmployeeRequest request) {
+        assertOfficialEmailDomain(request.email());
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 

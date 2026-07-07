@@ -11,7 +11,11 @@ import java.util.UUID;
 @Data
 public class CandidateRequest {
     @NotBlank private String firstName;
-    @NotBlank private String lastName;
+    // Not @NotBlank - the Add Candidate form only has a single "Full Name" field with no
+    // separate Last Name input, so a single-word name (e.g. "ria") legitimately produces an
+    // empty lastName. Requiring it here made every single-word name un-submittable with no way
+    // to fix it from the UI.
+    private String lastName;
     @NotBlank @Email private String email;
     private String phone;
     private String alternateMobile;

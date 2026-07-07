@@ -334,6 +334,24 @@ public class PayrollService {
         );
     }
 
+    // HR/Finance/CEO/Admin-only "all payslips" register - previously the only listing endpoint
+    // was getMyPayslips (self-scoped), so the admin Payroll page was actually only ever showing
+    // the logged-in caller's own payslips, never the whole company's, even though "Run Payroll"
+    // itself genuinely does generate one per active employee.
+    @Transactional(readOnly = true)
+    public PagedResponse<PayslipResponse> getAllPayslips(Pageable pageable) {
+        Page<Payslip> page = payslipRepository.findAllByOrderByYearDescMonthDesc(pageable);
+        List<PayslipResponse> content = page.getContent().stream().map(this::toPayslipResponse).toList();
+        return new PagedResponse<>(
+                content,
+                page.getNumber(),
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages(),
+                page.isLast()
+        );
+    }
+
     // Builds a real branded PDF for a payslip via the Document Studio engine, stores it, and
     // returns the download URL. principal is used only to enforce that an EMPLOYEE-role caller
     // can only ever generate their own payslip; HR/Finance/CEO/Admin can generate anyone's.

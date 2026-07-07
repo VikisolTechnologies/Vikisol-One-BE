@@ -66,6 +66,16 @@ public class PayrollController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Payslip retrieved", payslip));
     }
 
+    // HR/Finance/CEO/Admin view of every employee's payslips - the admin Payroll page previously
+    // had no real "all payslips" endpoint and was unintentionally using /my-payslips, so it only
+    // ever showed the logged-in user's own records.
+    @GetMapping("/payslips")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'FINANCE', 'CEO', 'ADMIN')")
+    public ResponseEntity<ApiResponse<PagedResponse<PayslipResponse>>> getAllPayslips(Pageable pageable) {
+        PagedResponse<PayslipResponse> payslips = payrollService.getAllPayslips(pageable);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Payslips retrieved", payslips));
+    }
+
     @GetMapping("/my-payslips")
     public ResponseEntity<ApiResponse<PagedResponse<PayslipResponse>>> getMyPayslips(
             @AuthenticationPrincipal UserPrincipal principal,

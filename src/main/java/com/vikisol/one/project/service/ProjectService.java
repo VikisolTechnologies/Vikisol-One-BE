@@ -118,9 +118,13 @@ public class ProjectService {
         projectMemberRepository.save(member);
     }
 
+    // Active-only, matching mapProject()'s teamSize (countByProjectIdAndIsActiveTrue) - previously
+    // this returned every member ever added including ones removed via removeMember() (which only
+    // soft-deletes via isActive=false), so the detail view listed more people than the card's
+    // count, e.g. a project card showing "2 members" but the detail modal listing 3.
     @Transactional(readOnly = true)
     public List<ProjectMemberResponse> getMembers(UUID projectId) {
-        return projectMemberRepository.findByProjectId(projectId)
+        return projectMemberRepository.findByProjectIdAndIsActiveTrue(projectId)
                 .stream().map(this::mapMember).toList();
     }
 

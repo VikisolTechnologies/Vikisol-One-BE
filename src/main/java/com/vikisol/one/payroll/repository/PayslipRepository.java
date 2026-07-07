@@ -19,6 +19,8 @@ public interface PayslipRepository extends JpaRepository<Payslip, UUID> {
 
     Page<Payslip> findByEmployeeIdOrderByYearDescMonthDesc(UUID employeeId, Pageable pageable);
 
+    Page<Payslip> findAllByOrderByYearDescMonthDesc(Pageable pageable);
+
     List<Payslip> findByMonthAndYearAndStatus(int month, int year, Payslip.PayslipStatus status);
 
     long countByMonthAndYear(int month, int year);
