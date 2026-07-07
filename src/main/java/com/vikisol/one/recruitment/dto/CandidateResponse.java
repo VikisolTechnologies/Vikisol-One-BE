@@ -43,6 +43,10 @@ public class CandidateResponse {
     private String notes;
     private UUID jobPostingId;
     private String jobPostingTitle;
+    // So the candidate's profile can show which tech stack/domain they applied against without a
+    // second fetch - previously only the job posting's id/title were exposed here.
+    private String jobPostingSkills;
+    private String jobPostingDepartment;
     private BigDecimal offeredCtc;
     private UUID offeredDesignationId;
     private String offeredDesignationTitle;

@@ -93,7 +93,25 @@ public class RecruitmentService {
                 .postedDate(LocalDate.now())
                 .closingDate(request.getClosingDate())
                 .build();
-        return mapJobPosting(jobPostingRepository.save(job));
+        job = jobPostingRepository.save(job);
+        notifyRecruitersOfNewJobPosting(job);
+        return mapJobPosting(job);
+    }
+
+    // Every recruiter should hear about a new opening immediately, not just whoever happens to
+    // check the Job Postings dashboard - previously creating a job posting sent no notification
+    // to anyone at all.
+    private void notifyRecruitersOfNewJobPosting(JobPosting job) {
+        List<com.vikisol.one.auth.entity.User> recruiters = userRepository.findByRoleIn(List.of(com.vikisol.one.security.RoleEnum.RECRUITER));
+        for (com.vikisol.one.auth.entity.User recruiter : recruiters) {
+            notificationService.sendNotification(
+                    recruiter.getId(),
+                    "New Job Posting: " + job.getTitle(),
+                    "A new opening for " + job.getTitle() + " (" + job.getNumberOfPositions() + " position(s)) has been posted.",
+                    Notification.NotificationType.RECRUITMENT, job.getId(), "JOB_POSTING",
+                    Notification.Priority.MEDIUM, "recruitment", "/job-postings"
+            );
+        }
     }
 
     public JobPostingResponse updateJobPosting(UUID id, JobPostingRequest request) {
@@ -239,13 +257,42 @@ public class RecruitmentService {
         candidate.setSkills(request.getSkills());
         if (request.getSource() != null) candidate.setSource(request.getSource());
         candidate.setNotes(request.getNotes());
-        if (request.getAssignedRecruiterId() != null) candidate.setAssignedRecruiterId(request.getAssignedRecruiterId());
+        // A recruiter (even the one currently assigned) can never reassign a candidate to someone
+        // else - only HR Manager/CEO/Admin can move a candidate from one recruiter to another.
+        // Previously any recruiter could silently overwrite assignedRecruiterId through this same
+        // full-profile update with no ownership check at all.
+        if (request.getAssignedRecruiterId() != null && !request.getAssignedRecruiterId().equals(candidate.getAssignedRecruiterId())) {
+            boolean canReassign = principal != null && principal.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+            if (!canReassign) {
+                throw new com.vikisol.one.common.exception.BadRequestException("Only HR Manager, CEO, or Admin can reassign a candidate to a different recruiter");
+            }
+            candidate.setAssignedRecruiterId(request.getAssignedRecruiterId());
+        }
         candidate.setHiringManagerId(request.getHiringManagerId());
         candidate.setBusinessUnit(request.getBusinessUnit());
         if (request.getPriority() != null) candidate.setPriority(request.getPriority());
         if (request.getJobPostingId() != null) {
             candidate.setJobPosting(entityManager.getReference(JobPosting.class, request.getJobPostingId()));
         }
+        return mapCandidate(candidateRepository.save(candidate));
+    }
+
+    // Self-claim: only succeeds if the candidate has no recruiter yet (direct/Arena applicants).
+    // Never lets a recruiter take a candidate away from someone else - that requires HR/CEO/Admin
+    // via updateCandidate's reassignment guard instead.
+    public CandidateResponse selfAssignCandidate(UUID id, UserPrincipal principal) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        if (candidate.getAssignedRecruiterId() != null) {
+            throw new com.vikisol.one.common.exception.BadRequestException(
+                    "This candidate already has an assigned recruiter - ask HR Manager or CEO to reassign");
+        }
+        Employee self = employeeRepository.findByUserId(principal.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Employee not found for current user"));
+        candidate.setAssignedRecruiterId(self.getId());
+        auditService.record("Candidate Self-Assigned", candidate.getFirstName() + " " + candidate.getLastName(),
+                "Assigned to " + self.getFirstName() + " " + self.getLastName());
         return mapCandidate(candidateRepository.save(candidate));
     }
 
@@ -354,8 +401,34 @@ public class RecruitmentService {
         }
         Candidate candidate = candidateRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        Candidate.Status previousStatus = candidate.getStatus();
         candidate.setStatus(status);
-        return mapCandidate(candidateRepository.save(candidate));
+        candidate = candidateRepository.save(candidate);
+        if (status != previousStatus) {
+            notifyStageChange(candidate, previousStatus, status);
+        }
+        return mapCandidate(candidate);
+    }
+
+    // Every stage move (e.g. Screening -> Technical/L1) notifies HR Manager, CEO, and the
+    // candidate's own assigned recruiter - previously a stage change notified no one at all.
+    private void notifyStageChange(Candidate candidate, Candidate.Status from, Candidate.Status to) {
+        String candidateName = candidate.getFirstName() + " " + candidate.getLastName();
+        String title = candidateName + " moved to " + to;
+        String message = candidateName + "'s stage changed from " + from + " to " + to + ".";
+
+        userRepository.findByRoleIn(List.of(com.vikisol.one.security.RoleEnum.CEO, com.vikisol.one.security.RoleEnum.HR_MANAGER))
+                .forEach(u -> notificationService.sendNotification(u.getId(), title, message,
+                        Notification.NotificationType.RECRUITMENT, candidate.getId(), "CANDIDATE",
+                        Notification.Priority.LOW, "recruitment", "/recruitment"));
+
+        if (candidate.getAssignedRecruiterId() != null) {
+            employeeRepository.findById(candidate.getAssignedRecruiterId())
+                    .map(Employee::getUser)
+                    .ifPresent(recruiterUser -> notificationService.sendNotification(recruiterUser.getId(), title, message,
+                            Notification.NotificationType.RECRUITMENT, candidate.getId(), "CANDIDATE",
+                            Notification.Priority.LOW, "recruitment", "/recruitment"));
+        }
     }
 
     public void deleteCandidate(UUID id) {
@@ -1048,6 +1121,10 @@ public class RecruitmentService {
         if (c.getJobPosting() != null) {
             r.setJobPostingId(c.getJobPosting().getId());
             r.setJobPostingTitle(c.getJobPosting().getTitle());
+            r.setJobPostingSkills(c.getJobPosting().getSkills());
+            if (c.getJobPosting().getDepartment() != null) {
+                r.setJobPostingDepartment(c.getJobPosting().getDepartment().getName());
+            }
         }
         r.setOfferedCtc(c.getOfferedCtc());
         if (c.getOfferedDesignation() != null) {

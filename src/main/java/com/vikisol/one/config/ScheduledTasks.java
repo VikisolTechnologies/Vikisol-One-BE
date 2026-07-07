@@ -42,6 +42,16 @@ public class ScheduledTasks {
     private final BackgroundCheckService backgroundCheckService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
+    private final com.vikisol.one.notification.repository.NotificationRepository notificationRepository;
+
+    // 30-day retention - notifications older than this are permanently deleted rather than
+    // accumulating forever. Runs daily just after midnight.
+    @Scheduled(cron = "0 30 0 * * *")
+    @Transactional
+    public void purgeOldNotifications() {
+        int deleted = notificationRepository.deleteByCreatedAtBefore(java.time.LocalDateTime.now().minusDays(30));
+        if (deleted > 0) log.info("Purged {} notification(s) older than 30 days", deleted);
+    }
 
     @Scheduled(cron = "0 0 22 * * MON-FRI")
     @Transactional

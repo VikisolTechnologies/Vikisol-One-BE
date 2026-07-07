@@ -25,19 +25,22 @@ public class RolePermissionService {
             "dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "hr-tasks", "analytics", "projects", "resources", "attendance",
             "leave", "payroll", "timesheets", "tickets", "assets", "performance",
             "org-chart", "reports", "documents", "policies", "communication", "settings", "security-center",
-            "my-background-verification", "company-branding", "document-studio", "company-integrations"
+            "my-background-verification", "company-branding", "document-studio", "company-integrations",
+            "job-postings"
     );
 
     private static final Map<RoleEnum, Set<String>> DEFAULTS = Map.of(
             RoleEnum.CEO, Set.copyOf(MODULES),
-            RoleEnum.ADMIN, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "hr-tasks", "analytics", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "policies", "communication", "settings", "security-center", "company-branding", "document-studio", "company-integrations"),
-            RoleEnum.HR_MANAGER, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "hr-tasks", "analytics", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "policies", "communication", "settings", "company-branding", "document-studio"),
+            RoleEnum.ADMIN, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "hr-tasks", "analytics", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "policies", "communication", "settings", "security-center", "company-branding", "document-studio", "company-integrations", "job-postings"),
+            RoleEnum.HR_MANAGER, Set.of("dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "hr-tasks", "analytics", "projects", "resources", "timesheets", "leave", "attendance", "payroll", "tickets", "assets", "performance", "org-chart", "reports", "documents", "policies", "communication", "settings", "company-branding", "document-studio", "job-postings"),
             // Managers are operational leads, not part of hiring/compensation approval - "new-hires" belongs to HR only.
             // They do get "offboarding" (to act on their reports' exit workflow) but not BGV or new-hires.
             RoleEnum.MANAGER, Set.of("dashboard", "employees", "offboarding", "projects", "resources", "timesheets", "leave", "attendance", "tickets", "performance", "org-chart", "reports", "policies"),
             // Everyone needs to see and acknowledge company policies, so "policies" is included for every role.
             RoleEnum.EMPLOYEE, Set.of("dashboard", "offboarding", "projects", "timesheets", "leave", "attendance", "payroll", "tickets", "performance", "documents", "policies", "my-background-verification"),
-            RoleEnum.RECRUITER, Set.of("dashboard", "recruitment", "assessments", "background-verification", "reports", "policies"),
+            // Recruiters see the Job Postings list (read/tag-against, enforced by the page's own
+            // canManage check and backend @PreAuthorize) even though only HR/CEO/Admin can create one.
+            RoleEnum.RECRUITER, Set.of("dashboard", "recruitment", "assessments", "background-verification", "reports", "policies", "job-postings"),
             RoleEnum.FINANCE, Set.of("dashboard", "payroll", "reports", "policies")
     );
 

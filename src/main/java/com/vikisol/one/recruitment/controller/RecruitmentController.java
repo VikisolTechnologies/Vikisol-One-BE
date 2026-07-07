@@ -98,6 +98,18 @@ public class RecruitmentController {
                 recruitmentService.updateCandidate(id, request, principal)));
     }
 
+    // Lets a recruiter claim a candidate that has no recruiter yet (e.g. applied directly through
+    // the company careers page or Arena, not sourced by anyone) - distinct from the reassignment
+    // guard in updateCandidate, since this only ever fills an empty slot, never takes a candidate
+    // away from another recruiter.
+    @PutMapping("/candidates/{id}/self-assign")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<CandidateResponse>> selfAssignCandidate(
+            @PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Candidate assigned to you",
+                recruitmentService.selfAssignCandidate(id, principal)));
+    }
+
     // HR adjusts a recruiter's pending offer proposal (CTC/bonus/variable pay/joining date/
     // designation/department/reporting manager) before approving it - "the approval popup should
     // not be read-only".

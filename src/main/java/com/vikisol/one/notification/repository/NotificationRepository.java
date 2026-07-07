@@ -4,8 +4,10 @@ import com.vikisol.one.notification.entity.Notification;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,6 +15,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     Page<Notification> findByRecipientIdOrderByCreatedAtDesc(UUID recipientId, Pageable pageable);
     List<Notification> findByRecipientIdAndIsReadFalse(UUID recipientId);
     long countByRecipientIdAndIsReadFalse(UUID recipientId);
+
+    @Modifying
+    @Query("DELETE FROM Notification n WHERE n.createdAt < :cutoff")
+    int deleteByCreatedAtBefore(@Param("cutoff") LocalDateTime cutoff);
 
     // Optional filters kept simple with COALESCE-style null checks rather than a Specification -
     // fine for this table's scale and avoids pulling in the Specification machinery for one endpoint.
