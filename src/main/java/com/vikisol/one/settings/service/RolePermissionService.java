@@ -24,7 +24,8 @@ public class RolePermissionService {
     public static final List<String> MODULES = List.of(
             "dashboard", "employees", "recruitment", "assessments", "new-hires", "background-verification", "offboarding", "hr-tasks", "analytics", "projects", "resources", "attendance",
             "leave", "payroll", "timesheets", "tickets", "assets", "performance",
-            "org-chart", "reports", "documents", "policies", "communication", "settings", "security-center"
+            "org-chart", "reports", "documents", "policies", "communication", "settings", "security-center",
+            "my-background-verification"
     );
 
     private static final Map<RoleEnum, Set<String>> DEFAULTS = Map.of(
@@ -35,7 +36,7 @@ public class RolePermissionService {
             // They do get "offboarding" (to act on their reports' exit workflow) but not BGV or new-hires.
             RoleEnum.MANAGER, Set.of("dashboard", "employees", "offboarding", "projects", "resources", "timesheets", "leave", "attendance", "tickets", "performance", "org-chart", "reports", "policies"),
             // Everyone needs to see and acknowledge company policies, so "policies" is included for every role.
-            RoleEnum.EMPLOYEE, Set.of("dashboard", "offboarding", "projects", "timesheets", "leave", "attendance", "payroll", "tickets", "performance", "documents", "policies"),
+            RoleEnum.EMPLOYEE, Set.of("dashboard", "offboarding", "projects", "timesheets", "leave", "attendance", "payroll", "tickets", "performance", "documents", "policies", "my-background-verification"),
             RoleEnum.RECRUITER, Set.of("dashboard", "recruitment", "assessments", "background-verification", "reports", "policies"),
             RoleEnum.FINANCE, Set.of("dashboard", "payroll", "reports", "policies")
     );

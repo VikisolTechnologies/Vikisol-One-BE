@@ -11,6 +11,7 @@ public record BackgroundCheckResponse(
         BackgroundCheck.Status status,
         String remarks,
         String reviewedByName,
-        LocalDateTime reviewedAt
+        LocalDateTime reviewedAt,
+        UUID documentId
 ) {
 }

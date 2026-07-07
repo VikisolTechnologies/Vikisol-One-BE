@@ -39,7 +39,7 @@ public class BackgroundCheckController {
     }
 
     // Only HR/CEO/Admin can move a check through its review workflow - this is a compliance
-    // record, not something an employee or their manager can self-certify.
+    // record, not something an employee, their manager, or the sourcing recruiter can self-certify.
     @PutMapping("/{checkId}")
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<BackgroundCheckResponse>> updateStatus(
@@ -47,5 +47,33 @@ public class BackgroundCheckController {
             @RequestBody BackgroundCheckUpdateRequest request, @AuthenticationPrincipal UserPrincipal principal) {
         UUID reviewerEmployeeId = employeeRepository.findByUserId(principal.getId()).map(e -> e.getId()).orElse(null);
         return ResponseEntity.ok(new ApiResponse<>(true, "Background check updated", backgroundCheckService.updateStatus(checkId, request, reviewerEmployeeId)));
+    }
+
+    public record RemarksRequest(String remarks) {}
+
+    // Recruiter can comment (add remarks) without touching status - distinct, narrower permission
+    // from updateStatus above, which stays HR/CEO/Admin-only.
+    @PutMapping("/{checkId}/remarks")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN','RECRUITER')")
+    public ResponseEntity<ApiResponse<BackgroundCheckResponse>> addRemarks(
+            @PathVariable UUID employeeId, @PathVariable UUID checkId, @RequestBody RemarksRequest request) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Remarks added", backgroundCheckService.addRemarks(checkId, request.remarks())));
+    }
+
+    public record AttachDocumentRequest(UUID documentId) {}
+
+    // Employee (their own check), Recruiter, HR, CEO, Admin can all attach supporting documents -
+    // uploading evidence isn't the same privilege as approving/rejecting a check.
+    @PutMapping("/{checkId}/document")
+    public ResponseEntity<ApiResponse<BackgroundCheckResponse>> attachDocument(
+            @PathVariable UUID employeeId, @PathVariable UUID checkId,
+            @RequestBody AttachDocumentRequest request, @AuthenticationPrincipal UserPrincipal principal) {
+        boolean privileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_RECRUITER"));
+        boolean isSelf = employeeRepository.findById(employeeId)
+                .map(e -> e.getUser() != null && e.getUser().getId().equals(principal.getId()))
+                .orElse(false);
+        if (!privileged && !isSelf) throw new BadRequestException("You do not have permission to attach documents to this employee's background verification");
+        return ResponseEntity.ok(new ApiResponse<>(true, "Document attached", backgroundCheckService.attachDocument(checkId, request.documentId())));
     }
 }

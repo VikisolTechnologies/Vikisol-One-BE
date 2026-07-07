@@ -35,6 +35,10 @@ public class BackgroundCheck extends BaseEntity {
     private UUID reviewedById;
     private LocalDateTime reviewedAt;
 
+    // Links to a row already uploaded through the generic Document module (POST /documents) -
+    // reuses existing storage/download plumbing rather than a parallel BGV-specific upload path.
+    private UUID documentId;
+
     public enum CheckType {
         IDENTITY, EDUCATION, EMPLOYMENT, ADDRESS, REFERENCE, POLICE, DRUG_TEST, VISA
     }

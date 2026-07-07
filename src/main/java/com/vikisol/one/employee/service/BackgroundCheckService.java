@@ -7,6 +7,8 @@ import com.vikisol.one.employee.entity.BackgroundCheck;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.BackgroundCheckRepository;
 import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.notification.entity.Notification;
+import com.vikisol.one.notification.service.NotificationService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ public class BackgroundCheckService {
     private final BackgroundCheckRepository backgroundCheckRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     // Every employee should have all 8 check rows visible from day one (even before HR has
     // started reviewing any of them) rather than only showing rows once someone creates them -
@@ -58,6 +61,7 @@ public class BackgroundCheckService {
     public BackgroundCheckResponse updateStatus(UUID checkId, BackgroundCheckUpdateRequest request, UUID reviewerEmployeeId) {
         BackgroundCheck check = backgroundCheckRepository.findById(checkId)
                 .orElseThrow(() -> new EntityNotFoundException("Background check not found"));
+        BackgroundCheck.Status previousStatus = check.getStatus();
         if (request.status() != null) check.setStatus(request.status());
         if (request.remarks() != null) check.setRemarks(request.remarks());
         check.setReviewedById(reviewerEmployeeId);
@@ -65,7 +69,48 @@ public class BackgroundCheckService {
         check = backgroundCheckRepository.save(check);
         auditService.record("Background Check Updated", check.getEmployee().getEmployeeId(),
                 check.getCheckType() + " -> " + check.getStatus());
+        if (request.status() != null && request.status() != previousStatus) {
+            notifyStatusChange(check);
+        }
         return toResponse(check);
+    }
+
+    // Recruiter-facing: add remarks/notes without moving the compliance status - Recruiter can
+    // comment on a check (e.g. "reference contacted, awaiting reply") but cannot approve/reject it.
+    @Transactional
+    public BackgroundCheckResponse addRemarks(UUID checkId, String remarks) {
+        BackgroundCheck check = backgroundCheckRepository.findById(checkId)
+                .orElseThrow(() -> new EntityNotFoundException("Background check not found"));
+        check.setRemarks(remarks);
+        check = backgroundCheckRepository.save(check);
+        auditService.record("Background Check Comment Added", check.getEmployee().getEmployeeId(),
+                check.getCheckType() + ": " + remarks);
+        return toResponse(check);
+    }
+
+    // Attaches a document already uploaded via the generic Document module (POST /documents) to
+    // this check row - Employee (their own), Recruiter, HR, CEO, and Admin may all attach evidence.
+    @Transactional
+    public BackgroundCheckResponse attachDocument(UUID checkId, UUID documentId) {
+        BackgroundCheck check = backgroundCheckRepository.findById(checkId)
+                .orElseThrow(() -> new EntityNotFoundException("Background check not found"));
+        check.setDocumentId(documentId);
+        if (check.getStatus() == BackgroundCheck.Status.PENDING) {
+            check.setStatus(BackgroundCheck.Status.SUBMITTED);
+        }
+        check = backgroundCheckRepository.save(check);
+        auditService.record("Background Check Document Attached", check.getEmployee().getEmployeeId(),
+                check.getCheckType().toString());
+        return toResponse(check);
+    }
+
+    private void notifyStatusChange(BackgroundCheck check) {
+        Employee employee = check.getEmployee();
+        if (employee.getUser() == null) return;
+        notificationService.sendNotification(employee.getUser().getId(),
+                "Your " + check.getCheckType() + " Verification is Now " + check.getStatus(),
+                "Your background verification check (" + check.getCheckType() + ") status changed to " + check.getStatus() + ".",
+                Notification.NotificationType.GENERAL, check.getId(), "BACKGROUND_CHECK");
     }
 
     // Overall completion for dashboard widgets ("Employees Pending BGV") - a resolved fraction so
@@ -80,6 +125,6 @@ public class BackgroundCheckService {
         String reviewerName = c.getReviewedById() != null
                 ? employeeRepository.findById(c.getReviewedById()).map(e -> e.getFirstName() + " " + e.getLastName()).orElse(null)
                 : null;
-        return new BackgroundCheckResponse(c.getId(), c.getCheckType(), c.getStatus(), c.getRemarks(), reviewerName, c.getReviewedAt());
+        return new BackgroundCheckResponse(c.getId(), c.getCheckType(), c.getStatus(), c.getRemarks(), reviewerName, c.getReviewedAt(), c.getDocumentId());
     }
 }
