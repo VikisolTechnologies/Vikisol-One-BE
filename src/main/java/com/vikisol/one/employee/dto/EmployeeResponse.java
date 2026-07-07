@@ -73,6 +73,11 @@ public record EmployeeResponse(
         String languagesKnown,
         Employee.LifecycleStatus lifecycleStatus,
         String costCenter,
-        String businessUnit
+        String businessUnit,
+        // Resolved from the employee's most recent OffboardingCase.lastWorkingDate - there is no
+        // such field directly on Employee itself. Powers attrition/exit reporting (e.g. the CEO
+        // Dashboard's "joined vs left per month" chart), which previously always read this as
+        // null/undefined for real data since nothing populated it at all.
+        LocalDate exitDate
 ) {
 }

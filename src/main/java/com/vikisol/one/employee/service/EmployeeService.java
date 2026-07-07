@@ -30,6 +30,7 @@ import com.vikisol.one.auth.repository.UserRepository;
 import com.vikisol.one.leave.service.LeaveService;
 import com.vikisol.one.offboarding.dto.InitiateOffboardingRequest;
 import com.vikisol.one.offboarding.entity.OffboardingCase;
+import com.vikisol.one.offboarding.repository.OffboardingCaseRepository;
 import com.vikisol.one.offboarding.service.OffboardingService;
 import com.vikisol.one.payroll.service.PayrollService;
 import com.vikisol.one.security.RoleEnum;
@@ -71,6 +72,7 @@ public class EmployeeService {
     private final DocumentGenerationService documentGenerationService;
     private final com.vikisol.one.settings.service.BrandingService brandingService;
     private final OffboardingService offboardingService;
+    private final OffboardingCaseRepository offboardingCaseRepository;
 
     @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -414,7 +416,8 @@ public class EmployeeService {
                 r.onboardingDocumentsVerified(), r.onboardingAssetsAssigned(),
                 r.onboardingBankDetailsCollected(), r.onboardingInductionCompleted(),
                 null, null, null, null, null, null, null, null, null,
-                r.lifecycleStatus(), r.costCenter(), r.businessUnit()
+                r.lifecycleStatus(), r.costCenter(), r.businessUnit(),
+                r.exitDate()
         );
     }
 
@@ -748,6 +751,7 @@ public class EmployeeService {
                     .map(mgr -> mgr.getFirstName() + " " + mgr.getLastName())
                     .orElse(null);
         }
+        java.time.LocalDate exitDate = resolveExitDate(employee);
 
         return new EmployeeResponse(
                 employee.getId(),
@@ -815,8 +819,23 @@ public class EmployeeService {
                 employee.getLanguagesKnown(),
                 employee.getLifecycleStatus(),
                 employee.getCostCenter(),
-                employee.getBusinessUnit()
+                employee.getBusinessUnit(),
+                exitDate
         );
+    }
+
+    // Only RESIGNED/TERMINATED employees can have an offboarding case at all - skip the query
+    // entirely for everyone else rather than looking it up and finding nothing every time.
+    private java.time.LocalDate resolveExitDate(Employee employee) {
+        if (employee.getEmploymentStatus() != Employee.EmploymentStatus.RESIGNED
+                && employee.getEmploymentStatus() != Employee.EmploymentStatus.TERMINATED) {
+            return null;
+        }
+        return offboardingCaseRepository.findByEmployeeId(employee.getId()).stream()
+                .map(OffboardingCase::getLastWorkingDate)
+                .filter(java.util.Objects::nonNull)
+                .max(java.time.LocalDate::compareTo)
+                .orElse(null);
     }
 
     private EmployeeListResponse toListResponse(Employee employee) {
@@ -829,7 +848,9 @@ public class EmployeeService {
                 employee.getDepartment() != null ? employee.getDepartment().getName() : null,
                 employee.getDesignation() != null ? employee.getDesignation().getTitle() : null,
                 employee.getEmploymentStatus(),
-                employee.getProfilePictureUrl()
+                employee.getProfilePictureUrl(),
+                employee.getDateOfJoining(),
+                resolveExitDate(employee)
         );
     }
 
