@@ -46,4 +46,20 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
             Employee.LifecycleStatus lifecycleStatus, java.time.LocalDate date);
 
     List<Employee> findByIsActiveTrueAndLifecycleStatus(Employee.LifecycleStatus lifecycleStatus);
+
+    boolean existsByEmployeeId(String employeeId);
+
+    boolean existsByEmailIgnoreCase(String email);
+
+    boolean existsByPersonalEmailIgnoreCase(String personalEmail);
+
+    boolean existsByPersonalMobile(String personalMobile);
+
+    boolean existsByPanNumberIgnoreCase(String panNumber);
+
+    boolean existsByAadharNumber(String aadharNumber);
+
+    boolean existsByUanNumber(String uanNumber);
+
+    boolean existsByPfNumber(String pfNumber);
 }

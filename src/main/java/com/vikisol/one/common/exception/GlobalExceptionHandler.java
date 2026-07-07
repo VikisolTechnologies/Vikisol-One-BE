@@ -2,6 +2,7 @@ package com.vikisol.one.common.exception;
 
 import com.vikisol.one.common.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -73,6 +74,38 @@ public class GlobalExceptionHandler {
             message = "Please enter a valid date";
         }
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiResponse<>(false, message, null));
+    }
+
+    // A raw Postgres unique-violation ("duplicate key value violates unique constraint ...") must
+    // never reach the frontend as literal SQL text. Translate the constraint/column name into a
+    // plain-English message where recognizable, falling back to a generic one otherwise. This is
+    // the single point of enforcement - every module's create/update paths funnel through here
+    // rather than needing their own try/catch around every save().
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        String raw = (ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage());
+        log.warn("Data integrity violation: {}", raw);
+        String lower = raw != null ? raw.toLowerCase() : "";
+        String message;
+        if (lower.contains("email")) {
+            message = "This email address is already in use.";
+        } else if (lower.contains("employee_id") || lower.contains("employeeid")) {
+            message = "This Employee ID is already in use.";
+        } else if (lower.contains("user_id") || lower.contains("userid")) {
+            message = "This account is already linked to another employee record.";
+        } else if (lower.contains("phone") || lower.contains("mobile")) {
+            message = "This phone number is already in use.";
+        } else if (lower.contains("pan")) {
+            message = "This PAN number is already in use.";
+        } else if (lower.contains("aadhar") || lower.contains("aadhaar")) {
+            message = "This Aadhaar number is already in use.";
+        } else if (lower.contains("unique") || lower.contains("duplicate")) {
+            message = "One of the values you entered is already in use elsewhere in the system.";
+        } else {
+            message = "This request could not be completed because it conflicts with existing data.";
+        }
+        return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiResponse<>(false, message, null));
     }
 

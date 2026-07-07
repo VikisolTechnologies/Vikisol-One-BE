@@ -38,6 +38,25 @@ public class EmployeeController {
     private final com.vikisol.one.auth.service.LoginLockoutService loginLockoutService;
     private final EmployeeRepository employeeRepository;
 
+    // Real-time inline validation for the Add/Edit Employee form - lets HR see "already exists"
+    // beside the field before submitting, instead of a raw DB constraint violation surfacing only
+    // on save. Any/all params may be omitted; only the ones present are checked. Registered before
+    // the plain "/employees" mapping so Spring doesn't need path-variable disambiguation.
+    @GetMapping("/validate")
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<com.vikisol.one.employee.dto.EmployeeFieldValidationResponse>> validateFields(
+            @RequestParam(required = false) String employeeId,
+            @RequestParam(required = false) String officialEmail,
+            @RequestParam(required = false) String personalEmail,
+            @RequestParam(required = false) String mobile,
+            @RequestParam(required = false) String pan,
+            @RequestParam(required = false) String aadhaar,
+            @RequestParam(required = false) String pf,
+            @RequestParam(required = false) String uan) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Validation checked",
+                employeeService.validateFields(employeeId, officialEmail, personalEmail, mobile, pan, aadhaar, pf, uan)));
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<PagedResponse<EmployeeListResponse>>> getAll(

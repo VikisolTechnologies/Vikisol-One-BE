@@ -135,8 +135,45 @@ public class EmployeeService {
         emailService.sendActivationEmail(sendTo, user.getFirstName() + " " + user.getLastName(), activationLink);
     }
 
+    // Backs the Add Employee form's real-time inline validation (GET /employees/validate) so a
+    // raw DB unique-constraint violation is never the first time HR learns a value is taken.
+    // Also called defensively at the start of createEmployee - closes the TOCTOU gap only
+    // partially (a true race between two concurrent submits still relies on the DB constraint +
+    // GlobalExceptionHandler's DataIntegrityViolationException handler as the final backstop),
+    // but eliminates it for the overwhelmingly common case of a single HR user re-checking values
+    // that were already taken before they ever click Submit.
+    @Transactional(readOnly = true)
+    public com.vikisol.one.employee.dto.EmployeeFieldValidationResponse validateFields(
+            String employeeId, String officialEmail, String personalEmail, String mobile,
+            String pan, String aadhaar, String pf, String uan) {
+        return new com.vikisol.one.employee.dto.EmployeeFieldValidationResponse(
+                employeeId != null && !employeeId.isBlank() && employeeRepository.existsByEmployeeId(employeeId),
+                officialEmail != null && !officialEmail.isBlank()
+                        && (employeeRepository.existsByEmailIgnoreCase(officialEmail) || userRepository.existsByEmail(officialEmail.trim().toLowerCase())),
+                personalEmail != null && !personalEmail.isBlank() && employeeRepository.existsByPersonalEmailIgnoreCase(personalEmail),
+                mobile != null && !mobile.isBlank() && employeeRepository.existsByPersonalMobile(mobile),
+                pan != null && !pan.isBlank() && employeeRepository.existsByPanNumberIgnoreCase(pan),
+                aadhaar != null && !aadhaar.isBlank() && employeeRepository.existsByAadharNumber(aadhaar),
+                pf != null && !pf.isBlank() && employeeRepository.existsByPfNumber(pf),
+                uan != null && !uan.isBlank() && employeeRepository.existsByUanNumber(uan)
+        );
+    }
+
+    private void assertFieldsNotTaken(EmployeeRequest request) {
+        var v = validateFields(null, request.email(), request.personalEmail(), request.personalMobile(),
+                request.panNumber(), request.aadharNumber(), request.pfNumber(), request.uanNumber());
+        if (v.officialEmailExists()) throw new RuntimeException("This official email address is already in use");
+        if (v.personalEmailExists()) throw new RuntimeException("This personal email address is already in use");
+        if (v.mobileExists()) throw new RuntimeException("This personal mobile number is already in use");
+        if (v.panExists()) throw new RuntimeException("This PAN number is already in use");
+        if (v.aadhaarExists()) throw new RuntimeException("This Aadhaar number is already in use");
+        if (v.pfExists()) throw new RuntimeException("This PF number is already in use");
+        if (v.uanExists()) throw new RuntimeException("This UAN is already in use");
+    }
+
     @Transactional
     public EmployeeResponse createEmployee(EmployeeRequest request) {
+        assertFieldsNotTaken(request);
         String nextEmployeeId = generateNextEmployeeId();
 
         Department department = request.departmentId() != null
