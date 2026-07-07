@@ -49,7 +49,18 @@ public class DocumentGenerationService {
      * and "Intern Offer Letter" for the same document type.
      */
     public byte[] render(Document.DocumentType type, UUID templateId, Map<String, String> fields) {
-        DocumentTemplate template = resolveTemplate(type, templateId);
+        return render(type, templateId, fields, false);
+    }
+
+    // allowUnpublished=true is for Document Studio's "Preview" action only - previewing a specific
+    // template by id is meaningless if it's restricted to PUBLISHED ones, since the entire point
+    // of a preview is to check a DRAFT before publishing it. Real generation (the no-flag overload
+    // above, and the auto-resolve-latest-published path when templateId is null) must never render
+    // an unpublished template.
+    public byte[] render(Document.DocumentType type, UUID templateId, Map<String, String> fields, boolean allowUnpublished) {
+        DocumentTemplate template = allowUnpublished && templateId != null
+                ? templateRepository.findById(templateId).orElseThrow(() -> new RuntimeException("Template not found"))
+                : resolveTemplate(type, templateId);
 
         BrandingDto branding = brandingService.getBranding();
         Map<String, String> allFields = new LinkedHashMap<>();

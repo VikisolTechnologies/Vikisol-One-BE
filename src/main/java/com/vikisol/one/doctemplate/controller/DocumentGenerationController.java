@@ -78,7 +78,7 @@ public class DocumentGenerationController {
                 id -> employeeRepository.findById(id).orElse(null));
         if (request.fields() != null) fields.putAll(request.fields());
 
-        byte[] pdf = documentGenerationService.render(request.documentType(), request.templateId(), fields);
+        byte[] pdf = documentGenerationService.render(request.documentType(), request.templateId(), fields, true);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=preview.pdf")
