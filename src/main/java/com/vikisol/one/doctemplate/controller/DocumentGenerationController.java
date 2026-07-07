@@ -3,9 +3,12 @@ package com.vikisol.one.doctemplate.controller;
 import com.vikisol.one.common.dto.ApiResponse;
 import com.vikisol.one.doctemplate.dto.DocumentGenerateRequest;
 import com.vikisol.one.doctemplate.service.DocumentGenerationService;
+import com.vikisol.one.doctemplate.service.OfferLetterFieldsHelper;
 import com.vikisol.one.document.entity.Document;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
+import com.vikisol.one.payroll.service.PayrollService;
+import com.vikisol.one.settings.service.BrandingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -13,6 +16,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -29,6 +34,8 @@ public class DocumentGenerationController {
 
     private final DocumentGenerationService documentGenerationService;
     private final EmployeeRepository employeeRepository;
+    private final PayrollService payrollService;
+    private final BrandingService brandingService;
 
     private static final Map<Document.DocumentType, String> TITLES = new LinkedHashMap<>() {{
         put(Document.DocumentType.OFFER_LETTER, "Offer Letter");
@@ -58,6 +65,7 @@ public class DocumentGenerationController {
 
         Map<String, String> fields = documentGenerationService.standardFieldsFor(employee,
                 id -> employeeRepository.findById(id).orElse(null));
+        if (request.documentType() == Document.DocumentType.OFFER_LETTER) fields.putAll(sampleOfferLetterFields(employee));
         if (request.fields() != null) fields.putAll(request.fields()); // caller-supplied values win
 
         String title = TITLES.getOrDefault(request.documentType(), request.documentType().name());
@@ -76,6 +84,11 @@ public class DocumentGenerationController {
 
         Map<String, String> fields = documentGenerationService.standardFieldsFor(employee,
                 id -> employeeRepository.findById(id).orElse(null));
+        // OFFER_LETTER has ~25 offer/CTC-specific placeholders (reporting manager, salary
+        // breakup, joining logistics) that standardFieldsFor() can't know about since it only
+        // reads plain Employee columns - without this, previewing the offer letter template
+        // with no real candidate/offer context always failed with "missing value(s)".
+        if (request.documentType() == Document.DocumentType.OFFER_LETTER) fields.putAll(sampleOfferLetterFields(employee));
         if (request.fields() != null) fields.putAll(request.fields());
 
         byte[] pdf = documentGenerationService.render(request.documentType(), request.templateId(), fields, true);
@@ -83,5 +96,21 @@ public class DocumentGenerationController {
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=preview.pdf")
                 .body(pdf);
+    }
+
+    // Fabricates sensible sample values for the offer-letter-specific fields that
+    // OfferLetterFieldsHelper normally derives from a real Candidate + offer + CTC breakup - used
+    // only as a preview/generic-generate fallback, never for a real candidate's offer (that path
+    // still goes through RecruitmentService.approveSelection with real data).
+    private Map<String, String> sampleOfferLetterFields(Employee employee) {
+        BigDecimal sampleCtc = employee.getCtc() != null && employee.getCtc().signum() > 0
+                ? employee.getCtc() : BigDecimal.valueOf(600000);
+        Map<String, BigDecimal> breakup = payrollService.computeCtcBreakup(sampleCtc);
+        BigDecimal professionalTax = payrollService.getConfigAsBigDecimal("PROFESSIONAL_TAX");
+        String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "Software Engineer";
+        return OfferLetterFieldsHelper.build(
+                employee.getFirstName() + " " + employee.getLastName(), designationTitle, null,
+                LocalDate.now().plusDays(14), "Reporting Manager", "",
+                breakup, breakup.getOrDefault("ctc", sampleCtc), professionalTax, brandingService.getBranding());
     }
 }
