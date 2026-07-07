@@ -6,9 +6,11 @@ import com.vikisol.one.employee.dto.*;
 import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.entity.EmployeeEducation;
 import com.vikisol.one.employee.entity.EmployeeEmploymentHistory;
+import com.vikisol.one.employee.entity.EmployeeNominee;
 import com.vikisol.one.employee.entity.EmployeeSkill;
 import com.vikisol.one.employee.repository.EmployeeEducationRepository;
 import com.vikisol.one.employee.repository.EmployeeEmploymentHistoryRepository;
+import com.vikisol.one.employee.repository.EmployeeNomineeRepository;
 import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.employee.repository.EmployeeSkillRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -31,6 +33,7 @@ public class OnboardingService {
     private final EmployeeEducationRepository educationRepository;
     private final EmployeeEmploymentHistoryRepository employmentHistoryRepository;
     private final EmployeeSkillRepository skillRepository;
+    private final EmployeeNomineeRepository nomineeRepository;
     private final DocumentRepository documentRepository;
     private final AuditService auditService;
 
@@ -60,6 +63,21 @@ public class OnboardingService {
                 .build();
         education = educationRepository.save(education);
         auditService.record("Education Added", employee.getEmployeeId(), request.degree() + " - " + employee.getFirstName() + " " + employee.getLastName());
+        return toResponse(education);
+    }
+
+    @Transactional
+    public EducationResponse updateEducation(UUID id, EducationRequest request) {
+        EmployeeEducation education = educationRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Education record not found"));
+        education.setDegree(request.degree());
+        education.setUniversity(request.university());
+        education.setCollege(request.college());
+        education.setYearOfCompletion(request.yearOfCompletion());
+        education.setGradeOrPercentage(request.gradeOrPercentage());
+        education.setCertificateDocumentUrl(request.certificateDocumentUrl());
+        education = educationRepository.save(education);
+        auditService.record("Education Updated", education.getEmployee().getEmployeeId(), request.degree());
         return toResponse(education);
     }
 
@@ -100,6 +118,27 @@ public class OnboardingService {
                 .build();
         history = employmentHistoryRepository.save(history);
         auditService.record("Employment History Added", employee.getEmployeeId(), request.companyName() + " - " + employee.getFirstName() + " " + employee.getLastName());
+        return toResponse(history);
+    }
+
+    @Transactional
+    public EmploymentHistoryResponse updateEmploymentHistory(UUID id, EmploymentHistoryRequest request) {
+        EmployeeEmploymentHistory history = employmentHistoryRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Employment history record not found"));
+        history.setCompanyName(request.companyName());
+        history.setDesignation(request.designation());
+        history.setJoiningDate(request.joiningDate());
+        history.setRelievingDate(request.relievingDate());
+        history.setSkillsUsed(request.skillsUsed());
+        history.setManagerName(request.managerName());
+        history.setReasonForLeaving(request.reasonForLeaving());
+        history.setLocation(request.location());
+        history.setLastSalary(request.lastSalary());
+        history.setOfferLetterUrl(request.offerLetterUrl());
+        history.setExperienceLetterUrl(request.experienceLetterUrl());
+        history.setRelievingLetterUrl(request.relievingLetterUrl());
+        history = employmentHistoryRepository.save(history);
+        auditService.record("Employment History Updated", history.getEmployee().getEmployeeId(), request.companyName());
         return toResponse(history);
     }
 
@@ -147,6 +186,52 @@ public class OnboardingService {
         return new SkillResponse(s.getId(), s.getSkillName(), s.getYearsOfExperience(), s.getLevel(), s.getLastUsed(), s.isCertified());
     }
 
+    // ─── Nominees ───
+
+    @Transactional(readOnly = true)
+    public List<NomineeResponse> getNominees(UUID employeeId) {
+        return nomineeRepository.findByEmployeeId(employeeId).stream().map(this::toResponse).toList();
+    }
+
+    @Transactional
+    public NomineeResponse addNominee(UUID employeeId, NomineeRequest request) {
+        Employee employee = getEmployeeOrThrow(employeeId);
+        EmployeeNominee nominee = EmployeeNominee.builder()
+                .employee(employee)
+                .name(request.name())
+                .relation(request.relation())
+                .dateOfBirth(request.dateOfBirth())
+                .sharePercentage(request.sharePercentage())
+                .gender(request.gender())
+                .build();
+        nominee = nomineeRepository.save(nominee);
+        auditService.record("Nominee Added", employee.getEmployeeId(), request.name());
+        return toResponse(nominee);
+    }
+
+    @Transactional
+    public NomineeResponse updateNominee(UUID id, NomineeRequest request) {
+        EmployeeNominee nominee = nomineeRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Nominee record not found"));
+        nominee.setName(request.name());
+        nominee.setRelation(request.relation());
+        nominee.setDateOfBirth(request.dateOfBirth());
+        nominee.setSharePercentage(request.sharePercentage());
+        nominee.setGender(request.gender());
+        nominee = nomineeRepository.save(nominee);
+        auditService.record("Nominee Updated", nominee.getEmployee().getEmployeeId(), request.name());
+        return toResponse(nominee);
+    }
+
+    @Transactional
+    public void deleteNominee(UUID id) {
+        nomineeRepository.deleteById(id);
+    }
+
+    private NomineeResponse toResponse(EmployeeNominee n) {
+        return new NomineeResponse(n.getId(), n.getName(), n.getRelation(), n.getDateOfBirth(), n.getSharePercentage(), n.getGender());
+    }
+
     // ─── Profile completion ───
 
     // Equal-weighted across 8 sections, matching the onboarding wizard's step list - each section
@@ -160,8 +245,11 @@ public class OnboardingService {
         int sectionsDone = 0;
         final int totalSections = 8;
 
+        // profilePictureUrl deliberately excluded - there is no photo-upload control anywhere in
+        // the self-service Onboarding Wizard, so requiring it made this section permanently
+        // unreachable (100% was impossible) regardless of what the employee actually filled in.
         boolean personalDone = e.getDateOfBirth() != null && e.getGender() != null && e.getCurrentAddress() != null
-                && e.getPersonalEmail() != null && e.getPersonalMobile() != null && e.getProfilePictureUrl() != null;
+                && e.getPersonalEmail() != null && e.getPersonalMobile() != null;
         if (personalDone) sectionsDone++; else missing.add("Personal Information");
         sections.add(new ProfileCompletionResponse.SectionStatus("personal", "Personal Information", personalDone));
 
@@ -189,7 +277,9 @@ public class OnboardingService {
         if (taxDone) sectionsDone++; else missing.add("Tax Information");
         sections.add(new ProfileCompletionResponse.SectionStatus("tax", "Tax Information", taxDone));
 
-        boolean nomineeDone = e.getNomineeName() != null && e.getNomineeRelation() != null;
+        // Done if either the older single-nominee fields (HR-entered data from before the list
+        // existed) or the new multi-nominee list has at least one entry.
+        boolean nomineeDone = (e.getNomineeName() != null && e.getNomineeRelation() != null) || nomineeRepository.countByEmployeeId(employeeId) > 0;
         if (nomineeDone) sectionsDone++; else missing.add("Nominee");
         sections.add(new ProfileCompletionResponse.SectionStatus("nominee", "Nominee", nomineeDone));
 
