@@ -326,6 +326,51 @@ public class EmployeeService {
         return toResponse(employee);
     }
 
+    // Self-service profile update (Onboarding Wizard's Personal/Bank/Tax/Nominee steps) - deliberately
+    // ignores admin-only fields (department, designation, employmentType/Status, salary components,
+    // reportingManagerId, dateOfJoining, official email/phone) even though the frontend sends the
+    // full merged profile object in the same request shape as updateEmployee above. This is enforced
+    // here, not just by hiding the fields in the UI - an employee tampering the request body client-side
+    // still can't move their own department/designation/CTC/employment status through this endpoint.
+    @Transactional
+    public EmployeeResponse updateOwnProfile(UUID id, EmployeeRequest request) {
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+        employee.setPersonalEmail(request.personalEmail());
+        employee.setPersonalMobile(request.personalMobile());
+        employee.setDateOfBirth(request.dateOfBirth());
+        employee.setGender(request.gender());
+        employee.setCurrentAddress(request.currentAddress());
+        employee.setPermanentAddress(request.permanentAddress());
+        employee.setBankName(request.bankName());
+        employee.setBankAccountNumber(request.bankAccountNumber());
+        employee.setIfscCode(request.ifscCode());
+        employee.setPanNumber(request.panNumber());
+        employee.setAadharNumber(request.aadharNumber());
+        employee.setUanNumber(request.uanNumber());
+        employee.setPfNumber(request.pfNumber());
+        employee.setEsiNumber(request.esiNumber());
+        employee.setEmergencyContactName(request.emergencyContactName());
+        employee.setEmergencyContactPhone(request.emergencyContactPhone());
+        employee.setEmergencyContactRelation(request.emergencyContactRelation());
+        employee.setProfilePictureUrl(request.profilePictureUrl());
+        employee.setNomineeName(request.nomineeName());
+        employee.setNomineeRelation(request.nomineeRelation());
+        employee.setNomineeDateOfBirth(request.nomineeDateOfBirth());
+        employee.setNomineeSharePercentage(request.nomineeSharePercentage());
+        employee.setNomineeGender(request.nomineeGender());
+        employee.setMaritalStatus(request.maritalStatus());
+        employee.setNationality(request.nationality());
+        employee.setBloodGroup(request.bloodGroup());
+        employee.setLanguagesKnown(request.languagesKnown());
+
+        employee = employeeRepository.save(employee);
+        auditService.record("Employee Self-Updated Profile", employee.getEmployeeId(),
+                employee.getFirstName() + " " + employee.getLastName());
+        return toResponse(employee);
+    }
+
     public EmployeeResponse getById(UUID id, UserPrincipal principal) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));

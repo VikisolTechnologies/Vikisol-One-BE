@@ -96,6 +96,22 @@ public class EmployeeController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Employee updated", employee));
     }
 
+    // Self-service update for the Onboarding Wizard's Personal/Bank/Tax/Nominee steps - the plain
+    // admin PUT above is CEO/HR/Admin-only, which previously made every employee's own onboarding
+    // Save action 403 with no working alternative. Only self-editable fields are ever applied
+    // server-side (see EmployeeService.updateOwnProfile) regardless of what else is in the body.
+    @PutMapping("/{id}/personal-profile")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> updateOwnProfile(
+            @PathVariable UUID id, @RequestBody EmployeeRequest request, @AuthenticationPrincipal UserPrincipal principal) {
+        boolean privileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isSelf = employeeRepository.findById(id)
+                .map(e -> e.getUser() != null && e.getUser().getId().equals(principal.getId()))
+                .orElse(false);
+        if (!privileged && !isSelf) throw new BadRequestException("You do not have permission to update this employee's profile");
+        return ResponseEntity.ok(new ApiResponse<>(true, "Profile updated", employeeService.updateOwnProfile(id, request)));
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deactivate(@PathVariable UUID id) {
