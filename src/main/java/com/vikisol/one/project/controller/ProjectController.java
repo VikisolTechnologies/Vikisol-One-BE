@@ -24,6 +24,7 @@ import java.util.UUID;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final com.vikisol.one.employee.repository.EmployeeRepository employeeRepository;
 
     // ─── Projects ───
 
@@ -64,12 +65,18 @@ public class ProjectController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Project deleted", null));
     }
 
+    // ProjectMember.employee is keyed by the Employee table's PK, not the User's - principal.getId()
+    // is the User id, a different UUID for any real account. Resolving through EmployeeRepository
+    // here is what makes "my projects" actually match the ProjectMember rows CEO/HR created.
     @GetMapping("/my-projects")
     @PreAuthorize("hasAnyRole('EMPLOYEE','MANAGER','HR_MANAGER','CEO','ADMIN')")
     public ResponseEntity<ApiResponse<List<ProjectResponse>>> getMyProjects(
             @AuthenticationPrincipal UserPrincipal principal) {
+        UUID employeeId = employeeRepository.findByUserId(principal.getId())
+                .map(com.vikisol.one.employee.entity.Employee::getId)
+                .orElseThrow(() -> new com.vikisol.one.common.exception.BadRequestException("No employee record is linked to this account"));
         return ResponseEntity.ok(new ApiResponse<>(true, "My projects retrieved",
-                projectService.getMyProjects(principal.getId())));
+                projectService.getMyProjects(employeeId)));
     }
 
     // ─── Members ───
