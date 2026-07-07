@@ -66,10 +66,21 @@ public class OnboardingService {
         return toResponse(education);
     }
 
+    // Cross-checks the record's actual employee against the path employeeId the controller
+    // already verified is self-or-privileged - previously this only trusted the record `id`
+    // outright, so an employee could pass their OWN employeeId (satisfying the controller's
+    // self-check) but supply someone ELSE's education record id and edit/delete it.
+    private void assertBelongsTo(UUID recordEmployeeId, UUID expectedEmployeeId) {
+        if (!recordEmployeeId.equals(expectedEmployeeId)) {
+            throw new EntityNotFoundException("Record not found for this employee");
+        }
+    }
+
     @Transactional
-    public EducationResponse updateEducation(UUID id, EducationRequest request) {
+    public EducationResponse updateEducation(UUID employeeId, UUID id, EducationRequest request) {
         EmployeeEducation education = educationRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Education record not found"));
+        assertBelongsTo(education.getEmployee().getId(), employeeId);
         education.setDegree(request.degree());
         education.setUniversity(request.university());
         education.setCollege(request.college());
@@ -82,7 +93,10 @@ public class OnboardingService {
     }
 
     @Transactional
-    public void deleteEducation(UUID id) {
+    public void deleteEducation(UUID employeeId, UUID id) {
+        EmployeeEducation education = educationRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Education record not found"));
+        assertBelongsTo(education.getEmployee().getId(), employeeId);
         educationRepository.deleteById(id);
     }
 
@@ -122,9 +136,10 @@ public class OnboardingService {
     }
 
     @Transactional
-    public EmploymentHistoryResponse updateEmploymentHistory(UUID id, EmploymentHistoryRequest request) {
+    public EmploymentHistoryResponse updateEmploymentHistory(UUID employeeId, UUID id, EmploymentHistoryRequest request) {
         EmployeeEmploymentHistory history = employmentHistoryRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Employment history record not found"));
+        assertBelongsTo(history.getEmployee().getId(), employeeId);
         history.setCompanyName(request.companyName());
         history.setDesignation(request.designation());
         history.setJoiningDate(request.joiningDate());
@@ -143,7 +158,10 @@ public class OnboardingService {
     }
 
     @Transactional
-    public void deleteEmploymentHistory(UUID id) {
+    public void deleteEmploymentHistory(UUID employeeId, UUID id) {
+        EmployeeEmploymentHistory history = employmentHistoryRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Employment history record not found"));
+        assertBelongsTo(history.getEmployee().getId(), employeeId);
         employmentHistoryRepository.deleteById(id);
     }
 
@@ -178,7 +196,10 @@ public class OnboardingService {
     }
 
     @Transactional
-    public void deleteSkill(UUID id) {
+    public void deleteSkill(UUID employeeId, UUID id) {
+        EmployeeSkill skill = skillRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Skill record not found"));
+        assertBelongsTo(skill.getEmployee().getId(), employeeId);
         skillRepository.deleteById(id);
     }
 
@@ -210,9 +231,10 @@ public class OnboardingService {
     }
 
     @Transactional
-    public NomineeResponse updateNominee(UUID id, NomineeRequest request) {
+    public NomineeResponse updateNominee(UUID employeeId, UUID id, NomineeRequest request) {
         EmployeeNominee nominee = nomineeRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Nominee record not found"));
+        assertBelongsTo(nominee.getEmployee().getId(), employeeId);
         nominee.setName(request.name());
         nominee.setRelation(request.relation());
         nominee.setDateOfBirth(request.dateOfBirth());
@@ -224,7 +246,10 @@ public class OnboardingService {
     }
 
     @Transactional
-    public void deleteNominee(UUID id) {
+    public void deleteNominee(UUID employeeId, UUID id) {
+        EmployeeNominee nominee = nomineeRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Nominee record not found"));
+        assertBelongsTo(nominee.getEmployee().getId(), employeeId);
         nomineeRepository.deleteById(id);
     }
 

@@ -142,6 +142,14 @@ public class TimesheetService {
         TimesheetEntry entry = entryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Entry not found"));
         Employee manager = getEmployee(principal);
+        // Role check alone let any MANAGER approve/reject any employee's timesheet entry
+        // company-wide - only that employee's actual reporting manager (or HR_MANAGER/CEO/ADMIN,
+        // who oversee everyone) may act on it.
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isCompanyWide && !manager.getId().equals(entry.getEmployee().getReportingManagerId())) {
+            throw new BadRequestException("You can only act on timesheet entries from your own direct reports");
+        }
         if ("APPROVE".equalsIgnoreCase(action)) {
             entry.setStatus(TimesheetEntry.Status.APPROVED);
             entry.setApprovedById(manager.getId());

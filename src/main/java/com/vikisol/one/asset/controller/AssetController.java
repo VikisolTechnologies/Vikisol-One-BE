@@ -85,8 +85,8 @@ public class AssetController {
 
     @GetMapping("/employee/{employeeId}")
     public ResponseEntity<ApiResponse<List<AssetAssignmentResponse>>> getEmployeeAssets(
-            @PathVariable UUID employeeId) {
-        List<AssetAssignmentResponse> assignments = assetService.getEmployeeAssets(employeeId);
+            @PathVariable UUID employeeId, @AuthenticationPrincipal UserPrincipal principal) {
+        List<AssetAssignmentResponse> assignments = assetService.getEmployeeAssets(employeeId, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Employee assets fetched", assignments));
     }
 

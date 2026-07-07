@@ -147,6 +147,26 @@ public class AssetService {
     }
 
     @Transactional(readOnly = true)
+    // Public controller entry point - enforces self/manager/privileged. Previously had no check
+    // at all: any authenticated user could view any other employee's assigned-asset records just
+    // by supplying a different employeeId.
+    public List<AssetAssignmentResponse> getEmployeeAssets(UUID employeeId, UserPrincipal principal) {
+        boolean privileged = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        if (!privileged) {
+            Employee caller = employeeRepository.findByUserId(principal.getId()).orElse(null);
+            boolean isSelf = caller != null && caller.getId().equals(employeeId);
+            boolean isManager = caller != null && employeeRepository.findById(employeeId)
+                    .map(target -> caller.getId().equals(target.getReportingManagerId())).orElse(false);
+            if (!isSelf && !isManager) {
+                throw new com.vikisol.one.common.exception.BadRequestException("You do not have permission to view this employee's assets");
+            }
+        }
+        return getEmployeeAssets(employeeId);
+    }
+
+    // Trusted internal callers only (dashboard summary / offboarding checklist - already
+    // permission-checked by their own controller's self-or-privileged guard).
     public List<AssetAssignmentResponse> getEmployeeAssets(UUID employeeId) {
         return assetAssignmentRepository.findByEmployeeIdAndIsActiveTrue(employeeId)
                 .stream().map(this::mapToAssignmentResponse).toList();

@@ -6,6 +6,8 @@ import com.vikisol.one.employee.entity.Employee;
 import com.vikisol.one.employee.repository.EmployeeRepository;
 import com.vikisol.one.offboarding.dto.*;
 import com.vikisol.one.offboarding.entity.OffboardingCase;
+import com.vikisol.one.offboarding.entity.OffboardingChecklistItem;
+import com.vikisol.one.offboarding.repository.OffboardingChecklistItemRepository;
 import com.vikisol.one.offboarding.service.OffboardingService;
 import com.vikisol.one.security.service.UserPrincipal;
 import jakarta.persistence.EntityNotFoundException;
@@ -31,6 +33,7 @@ public class OffboardingController {
 
     private final OffboardingService offboardingService;
     private final EmployeeRepository employeeRepository;
+    private final OffboardingChecklistItemRepository checklistItemRepository;
 
     private boolean isPrivileged(UserPrincipal principal) {
         return principal.getAuthorities().stream().anyMatch(a ->
@@ -159,10 +162,14 @@ public class OffboardingController {
             @AuthenticationPrincipal UserPrincipal principal) {
         // Any privileged or manager-of-the-employee user may update; self-service by the exiting
         // employee is intentionally not allowed (checklist completion must be attested by HR/IT/
-        // Finance/manager, not self-certified).
-        if (!isPrivileged(principal) && employeeRepository.findByUserId(principal.getId()).isEmpty()) {
-            throw new BadRequestException("You do not have permission to update this checklist item");
-        }
+        // Finance/manager, not self-certified). The previous check only verified the caller had
+        // SOME employee record linked - it never resolved which employee this specific checklist
+        // item belongs to, so any authenticated employee could act on any other employee's exit
+        // checklist. Now resolves the real target employee and reuses assertCanAct.
+        OffboardingChecklistItem item = checklistItemRepository.findById(itemId)
+                .orElseThrow(() -> new EntityNotFoundException("Checklist item not found"));
+        Employee targetEmployee = item.getOffboardingCase().getEmployee();
+        assertCanAct(principal, targetEmployee);
         return ResponseEntity.ok(new ApiResponse<>(true, "Checklist item updated",
                 offboardingService.updateChecklistItem(itemId, request, actorEmployeeId(principal))));
     }

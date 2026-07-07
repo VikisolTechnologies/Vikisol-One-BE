@@ -55,6 +55,18 @@ public class DocumentService {
                 .orElse(false);
     }
 
+    // hasRole(principal, "MANAGER") alone only proves the caller HOLDS the role - not that this
+    // specific employee reports to them. Any MANAGER account could otherwise view/download any
+    // employee's non-hidden documents company-wide.
+    private boolean isManagerOf(UUID employeeId, UserPrincipal principal) {
+        if (!hasRole(principal, "MANAGER")) return false;
+        Employee manager = employeeRepository.findByUserId(principal.getId()).orElse(null);
+        if (manager == null) return false;
+        return employeeRepository.findById(employeeId)
+                .map(target -> manager.getId().equals(target.getReportingManagerId()))
+                .orElse(false);
+    }
+
     // Trusted internal callers only (system-generated offer/experience/relieving letters etc.) -
     // no principal to check because these run as a server-side action already gated by their own
     // endpoint's @PreAuthorize, not a direct user-supplied upload.
@@ -95,7 +107,7 @@ public class DocumentService {
         boolean self = isSelf(employeeId, principal);
         boolean fullAccess = hasRole(principal, "CEO") || hasRole(principal, "HR_MANAGER") || hasRole(principal, "ADMIN");
         boolean isFinance = hasRole(principal, "FINANCE");
-        boolean isManager = hasRole(principal, "MANAGER");
+        boolean isManager = isManagerOf(employeeId, principal);
 
         if (!self && !fullAccess && !isFinance && !isManager) {
             throw new BadRequestException("You do not have permission to view this employee's documents");
@@ -185,7 +197,7 @@ public class DocumentService {
         boolean self = isSelf(employeeId, principal);
         boolean fullAccess = hasRole(principal, "CEO") || hasRole(principal, "HR_MANAGER") || hasRole(principal, "ADMIN");
         boolean isFinance = hasRole(principal, "FINANCE") && FINANCE_VISIBLE_TYPES.contains(document.getType());
-        boolean isManager = hasRole(principal, "MANAGER") && !MANAGER_HIDDEN_TYPES.contains(document.getType());
+        boolean isManager = isManagerOf(employeeId, principal) && !MANAGER_HIDDEN_TYPES.contains(document.getType());
         if (!self && !fullAccess && !isFinance && !isManager) {
             throw new BadRequestException("You do not have permission to download this document");
         }

@@ -81,9 +81,20 @@ public class PerformanceService {
                 .map(this::mapGoalResponse).toList();
     }
 
-    public GoalResponse updateGoal(UUID goalId, GoalRequest request) {
+    public GoalResponse updateGoal(UUID goalId, GoalRequest request, UserPrincipal principal) {
         PerformanceGoal goal = goalRepository.findById(goalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Goal not found"));
+        // Previously had no authorization check at all - any authenticated user (any role reaching
+        // this endpoint) could edit any employee's goal by id. Now requires the caller to be that
+        // employee's actual reporting manager, or HR_MANAGER/CEO who oversee everyone.
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER"));
+        if (!isCompanyWide) {
+            Employee manager = getEmployeeFromPrincipal(principal);
+            if (!manager.getId().equals(goal.getEmployee().getReportingManagerId())) {
+                throw new BadRequestException("You can only update goals for your own direct reports");
+            }
+        }
         goal.setTitle(request.getTitle());
         goal.setDescription(request.getDescription());
         goal.setCategory(request.getCategory());

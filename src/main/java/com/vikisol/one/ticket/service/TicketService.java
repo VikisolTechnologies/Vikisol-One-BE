@@ -95,10 +95,23 @@ public class TicketService {
         return mapToResponse(ticket, null);
     }
 
+    private void assertCanAccessTicket(Ticket ticket, UserPrincipal principal) {
+        boolean isStaff = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_CEO"));
+        if (isStaff) return;
+        Employee caller = employeeRepository.findByUserId(principal.getId()).orElse(null);
+        boolean isRaiserOrAssignee = caller != null
+                && (caller.getId().equals(ticket.getRaisedById()) || caller.getId().equals(ticket.getAssignedToId()));
+        if (!isRaiserOrAssignee) {
+            throw new RuntimeException("You can only access tickets you raised or are assigned to");
+        }
+    }
+
     @Transactional
     public TicketCommentResponse addComment(UUID ticketId, TicketCommentRequest request, UserPrincipal principal) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        assertCanAccessTicket(ticket, principal);
         Employee employee = employeeRepository.findByUserId(principal.getId())
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
@@ -137,9 +150,10 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public TicketResponse getTicketById(UUID ticketId) {
+    public TicketResponse getTicketById(UUID ticketId, UserPrincipal principal) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        assertCanAccessTicket(ticket, principal);
         List<TicketComment> comments = ticketCommentRepository.findByTicketIdOrderByCreatedAtAsc(ticketId);
         return mapToResponse(ticket, comments);
     }

@@ -71,9 +71,12 @@ public class TicketController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Assigned tickets fetched", pagedResponse));
     }
 
+    // Previously had no restriction at all - any authenticated user could fetch any ticket
+    // (including internal HR-only comments) by id. Same raiser/assignee/staff boundary as
+    // updateStatus below.
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<TicketResponse>> getTicketById(@PathVariable UUID id) {
-        TicketResponse response = ticketService.getTicketById(id);
+    public ResponseEntity<ApiResponse<TicketResponse>> getTicketById(@PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
+        TicketResponse response = ticketService.getTicketById(id, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Ticket details fetched", response));
     }
 
@@ -98,6 +101,8 @@ public class TicketController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Ticket status updated", response));
     }
 
+    // Previously had no restriction at all - any authenticated user could comment on (and by
+    // extension, observe) any ticket in the system, including internal-only threads.
     @PostMapping("/{id}/comments")
     public ResponseEntity<ApiResponse<TicketCommentResponse>> addComment(
             @PathVariable UUID id,

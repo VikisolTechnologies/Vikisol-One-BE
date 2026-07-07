@@ -56,8 +56,10 @@ public class PerformanceController {
     }
 
     @PutMapping("/goals/{id}")
-    public ResponseEntity<ApiResponse<?>> updateGoal(@PathVariable UUID id, @Valid @RequestBody GoalRequest request) {
-        return ResponseEntity.ok(new ApiResponse<>(true, "Goal updated", performanceService.updateGoal(id, request)));
+    @PreAuthorize("hasAnyRole('MANAGER','HR_MANAGER','CEO')")
+    public ResponseEntity<ApiResponse<?>> updateGoal(@PathVariable UUID id, @Valid @RequestBody GoalRequest request,
+                                                      @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Goal updated", performanceService.updateGoal(id, request, principal)));
     }
 
     @PostMapping("/reviews/self")

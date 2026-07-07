@@ -172,15 +172,44 @@ public class DataSeeder implements CommandLineRunner {
         }
     }
 
+    // These 7 fixed passwords used to be hardcoded here AND rendered in plaintext on the public
+    // Login page's "Demo Logins" panel - meaning every fresh/wiped database ever bootstrapped from
+    // this codebase got the exact same publicly-known credentials. In prod, generate a random,
+    // never-logged-to-source, one-time-per-database password for each instead; the operator claims
+    // each account via "Forgot Password" against its official email afterward. Non-prod keeps the
+    // fixed passwords for local/dev convenience (never a real deployment with real data).
     private void seedUsers() {
-        createUser("admin@vikisol.in", "Admin@123", "System", "Admin", RoleEnum.ADMIN);
-        createUser("ceo@vikisol.in", "Ceo@123", "Vikram", "Singh", RoleEnum.CEO);
-        createUser("hr@vikisol.in", "Hr@123", "Priya", "Sharma", RoleEnum.HR_MANAGER);
-        createUser("finance@vikisol.in", "Finance@123", "Rajesh", "Kumar", RoleEnum.FINANCE);
-        createUser("manager@vikisol.in", "Manager@123", "Amit", "Patel", RoleEnum.MANAGER);
-        createUser("recruiter@vikisol.in", "Recruiter@123", "Sneha", "Reddy", RoleEnum.RECRUITER);
-        createUser("employee@vikisol.in", "Employee@123", "Rahul", "Verma", RoleEnum.EMPLOYEE);
-        log.info("  -> 7 users created");
+        boolean isProd = environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"));
+        if (isProd) {
+            createUser("admin@vikisol.in", randomSeedPassword(), "System", "Admin", RoleEnum.ADMIN);
+            createUser("ceo@vikisol.in", randomSeedPassword(), "Vikram", "Singh", RoleEnum.CEO);
+            createUser("hr@vikisol.in", randomSeedPassword(), "Priya", "Sharma", RoleEnum.HR_MANAGER);
+            createUser("finance@vikisol.in", randomSeedPassword(), "Rajesh", "Kumar", RoleEnum.FINANCE);
+            createUser("manager@vikisol.in", randomSeedPassword(), "Amit", "Patel", RoleEnum.MANAGER);
+            createUser("recruiter@vikisol.in", randomSeedPassword(), "Sneha", "Reddy", RoleEnum.RECRUITER);
+            createUser("employee@vikisol.in", randomSeedPassword(), "Rahul", "Verma", RoleEnum.EMPLOYEE);
+            log.warn("  -> 7 users created with random one-time passwords (prod) - use Forgot Password against each official email to claim the account; nobody, including this log, ever records the generated password.");
+        } else {
+            createUser("admin@vikisol.in", "Admin@123", "System", "Admin", RoleEnum.ADMIN);
+            createUser("ceo@vikisol.in", "Ceo@123", "Vikram", "Singh", RoleEnum.CEO);
+            createUser("hr@vikisol.in", "Hr@123", "Priya", "Sharma", RoleEnum.HR_MANAGER);
+            createUser("finance@vikisol.in", "Finance@123", "Rajesh", "Kumar", RoleEnum.FINANCE);
+            createUser("manager@vikisol.in", "Manager@123", "Amit", "Patel", RoleEnum.MANAGER);
+            createUser("recruiter@vikisol.in", "Recruiter@123", "Sneha", "Reddy", RoleEnum.RECRUITER);
+            createUser("employee@vikisol.in", "Employee@123", "Rahul", "Verma", RoleEnum.EMPLOYEE);
+            log.info("  -> 7 users created");
+        }
+    }
+
+    private static final String SEED_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+    private static final java.security.SecureRandom SEED_RANDOM = new java.security.SecureRandom();
+
+    private String randomSeedPassword() {
+        StringBuilder sb = new StringBuilder(20);
+        for (int i = 0; i < 20; i++) {
+            sb.append(SEED_PASSWORD_CHARS.charAt(SEED_RANDOM.nextInt(SEED_PASSWORD_CHARS.length())));
+        }
+        return sb.toString();
     }
 
     private void createUser(String email, String password, String firstName, String lastName, RoleEnum role) {

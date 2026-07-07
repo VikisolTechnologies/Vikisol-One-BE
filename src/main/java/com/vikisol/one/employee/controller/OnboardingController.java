@@ -52,13 +52,13 @@ public class OnboardingController {
     @PutMapping("/education/{id}")
     public ResponseEntity<ApiResponse<EducationResponse>> updateEducation(@PathVariable UUID employeeId, @PathVariable UUID id, @RequestBody EducationRequest request, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        return ResponseEntity.ok(new ApiResponse<>(true, "Education updated", onboardingService.updateEducation(id, request)));
+        return ResponseEntity.ok(new ApiResponse<>(true, "Education updated", onboardingService.updateEducation(employeeId, id, request)));
     }
 
     @DeleteMapping("/education/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteEducation(@PathVariable UUID employeeId, @PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        onboardingService.deleteEducation(id);
+        onboardingService.deleteEducation(employeeId, id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Education removed", null));
     }
 
@@ -79,13 +79,13 @@ public class OnboardingController {
     @PutMapping("/employment-history/{id}")
     public ResponseEntity<ApiResponse<EmploymentHistoryResponse>> updateEmploymentHistory(@PathVariable UUID employeeId, @PathVariable UUID id, @RequestBody EmploymentHistoryRequest request, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        return ResponseEntity.ok(new ApiResponse<>(true, "Employment history updated", onboardingService.updateEmploymentHistory(id, request)));
+        return ResponseEntity.ok(new ApiResponse<>(true, "Employment history updated", onboardingService.updateEmploymentHistory(employeeId, id, request)));
     }
 
     @DeleteMapping("/employment-history/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteEmploymentHistory(@PathVariable UUID employeeId, @PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        onboardingService.deleteEmploymentHistory(id);
+        onboardingService.deleteEmploymentHistory(employeeId, id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Employment history removed", null));
     }
 
@@ -106,7 +106,7 @@ public class OnboardingController {
     @DeleteMapping("/skills/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteSkill(@PathVariable UUID employeeId, @PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        onboardingService.deleteSkill(id);
+        onboardingService.deleteSkill(employeeId, id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Skill removed", null));
     }
 
@@ -127,13 +127,13 @@ public class OnboardingController {
     @PutMapping("/nominees/{id}")
     public ResponseEntity<ApiResponse<NomineeResponse>> updateNominee(@PathVariable UUID employeeId, @PathVariable UUID id, @RequestBody NomineeRequest request, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        return ResponseEntity.ok(new ApiResponse<>(true, "Nominee updated", onboardingService.updateNominee(id, request)));
+        return ResponseEntity.ok(new ApiResponse<>(true, "Nominee updated", onboardingService.updateNominee(employeeId, id, request)));
     }
 
     @DeleteMapping("/nominees/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteNominee(@PathVariable UUID employeeId, @PathVariable UUID id, @AuthenticationPrincipal UserPrincipal principal) {
         assertSelfOrPrivileged(employeeId, principal);
-        onboardingService.deleteNominee(id);
+        onboardingService.deleteNominee(employeeId, id);
         return ResponseEntity.ok(new ApiResponse<>(true, "Nominee removed", null));
     }
 
