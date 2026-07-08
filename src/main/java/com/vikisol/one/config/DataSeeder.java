@@ -1,7 +1,10 @@
 package com.vikisol.one.config;
 
+import com.vikisol.one.auth.entity.ActivationToken;
 import com.vikisol.one.auth.entity.User;
+import com.vikisol.one.auth.repository.ActivationTokenRepository;
 import com.vikisol.one.auth.repository.UserRepository;
+import com.vikisol.one.common.service.EmailService;
 import com.vikisol.one.department.entity.Department;
 import com.vikisol.one.department.repository.DepartmentRepository;
 import com.vikisol.one.designation.entity.Designation;
@@ -35,6 +38,8 @@ import org.springframework.stereotype.Component;
 
 import com.vikisol.one.settings.entity.Holiday.HolidayType;
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +65,11 @@ public class DataSeeder implements CommandLineRunner {
     private final DocumentTemplateService documentTemplateService;
     private final ObjectMapper objectMapper;
     private final Environment environment;
+    private final ActivationTokenRepository activationTokenRepository;
+    private final EmailService emailService;
+
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
 
     @Override
     @Transactional
@@ -113,8 +123,16 @@ public class DataSeeder implements CommandLineRunner {
         } else {
             log.info("Data already seeded, skipping bulk seed...");
         }
+        // Always run - idempotent (skips any email that already has a User row). One real,
+        // properly-provisioned test account per role, requested directly by the CEO for testing
+        // every role's access without touching production employee data.
+        seedMasterTestAccounts();
+
         // Always run — idempotent, links any user that lacks an Employee record
         seedEmployeesForUsers();
+
+        // Always run - idempotent (only touches rows where personalEmail is still blank).
+        linkMasterTestAccountsPersonalEmail();
 
         // Document templates are business content (legal letter text), not application config -
         // they must never be silently auto-created/changed in production, even the "default"
@@ -882,6 +900,86 @@ public class DataSeeder implements CommandLineRunner {
         if (templateVariableRepository.existsByKey(key)) return;
         templateVariableRepository.save(TemplateVariable.builder()
                 .key(key).label(label).description(description).documentType(type).build());
+    }
+
+    private static final String MASTER_TEST_PERSONAL_EMAIL = "seelisyam2410@gmail.com";
+    private static final String MASTER_TEST_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    private static final java.security.SecureRandom MASTER_TEST_RANDOM = new java.security.SecureRandom();
+
+    // One real, activation-flow-provisioned test account per role (CEO, HR Manager, Manager,
+    // Recruiter, Employee, Finance, Admin) - not a hardcoded frontend stub. Same "disabled until
+    // activated, no password ever emailed, activation link goes to a personal inbox" pattern as
+    // every real employee (see EmployeeService.resolveOrProvisionUser/issueActivationToken); this
+    // just reimplements it here since DataSeeder doesn't inject EmployeeService. Idempotent -
+    // skips any of the 7 emails that already exist, so it's safe to leave in permanently.
+    private void seedMasterTestAccounts() {
+        record MasterAccount(String email, String firstName, String lastName, RoleEnum role) {}
+        List<MasterAccount> accounts = List.of(
+                new MasterAccount("syam.ceo@vikisol.in", "Syam", "CEO", RoleEnum.CEO),
+                new MasterAccount("syam.hr@vikisol.in", "Syam", "HR Manager", RoleEnum.HR_MANAGER),
+                new MasterAccount("syam.manager@vikisol.in", "Syam", "Manager", RoleEnum.MANAGER),
+                new MasterAccount("syam.recruiter@vikisol.in", "Syam", "Recruiter", RoleEnum.RECRUITER),
+                new MasterAccount("syam.employee@vikisol.in", "Syam", "Employee", RoleEnum.EMPLOYEE),
+                new MasterAccount("syam.finance@vikisol.in", "Syam", "Finance", RoleEnum.FINANCE),
+                new MasterAccount("syam.admin@vikisol.in", "Syam", "Admin", RoleEnum.ADMIN)
+        );
+
+        int created = 0;
+        for (MasterAccount acc : accounts) {
+            if (userRepository.findByEmail(acc.email()).isPresent()) continue;
+
+            User user = User.builder()
+                    .email(acc.email())
+                    .password(passwordEncoder.encode(masterTestRandomToken()))
+                    .firstName(acc.firstName())
+                    .lastName(acc.lastName())
+                    .role(acc.role())
+                    .enabled(false)
+                    .accountNonLocked(true)
+                    .build();
+            user = userRepository.save(user);
+
+            String token = masterTestRandomToken();
+            activationTokenRepository.save(ActivationToken.builder()
+                    .token(token)
+                    .user(user)
+                    .expiresAt(Instant.now().plus(Duration.ofHours(24)))
+                    .used(false)
+                    .build());
+            String activationLink = frontendUrl + "/activate?token=" + token;
+            try {
+                emailService.sendActivationEmail(MASTER_TEST_PERSONAL_EMAIL, acc.firstName() + " " + acc.lastName(), activationLink);
+            } catch (Exception e) {
+                log.warn("Could not send activation email for master test account {}: {}", acc.email(), e.getMessage());
+            }
+            created++;
+        }
+        if (created > 0) log.info("  -> {} master test account(s) created, activation links sent to {}", created, MASTER_TEST_PERSONAL_EMAIL);
+    }
+
+    // seedEmployeesForUsers() (below) creates the Employee row for these accounts but has no
+    // concept of personalEmail - fill it in afterwards so Forgot Password works for these test
+    // accounts too (AuthService.forgotPassword sends the reset link to Employee.personalEmail).
+    private void linkMasterTestAccountsPersonalEmail() {
+        List<String> masterEmails = List.of(
+                "syam.ceo@vikisol.in", "syam.hr@vikisol.in", "syam.manager@vikisol.in",
+                "syam.recruiter@vikisol.in", "syam.employee@vikisol.in", "syam.finance@vikisol.in", "syam.admin@vikisol.in");
+        for (String email : masterEmails) {
+            userRepository.findByEmail(email).flatMap(u -> employeeRepository.findByUserId(u.getId())).ifPresent(emp -> {
+                if (emp.getPersonalEmail() == null || emp.getPersonalEmail().isBlank()) {
+                    emp.setPersonalEmail(MASTER_TEST_PERSONAL_EMAIL);
+                    employeeRepository.save(emp);
+                }
+            });
+        }
+    }
+
+    private String masterTestRandomToken() {
+        StringBuilder sb = new StringBuilder(32);
+        for (int i = 0; i < 32; i++) {
+            sb.append(MASTER_TEST_PASSWORD_CHARS.charAt(MASTER_TEST_RANDOM.nextInt(MASTER_TEST_PASSWORD_CHARS.length())));
+        }
+        return sb.toString();
     }
 
     private void seedEmployeesForUsers() {
