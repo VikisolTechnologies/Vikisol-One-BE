@@ -10,8 +10,14 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 5
-      minimum-idle: 2
+      # 5 was too small for real usage - every DB-writing @Async call (e.g. EmailLogService.log,
+      # which deliberately uses REQUIRES_NEW so it always needs its OWN connection on top of
+      # whatever transaction is already open) adds concurrent connection demand on top of normal
+      # request traffic. Under any real concurrency this pool exhausted, and any request unlucky
+      # enough to need a connection while it was full failed outright with a raw
+      # "Could not open JPA EntityManager for transaction" error - including plain login.
+      maximum-pool-size: 20
+      minimum-idle: 5
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
