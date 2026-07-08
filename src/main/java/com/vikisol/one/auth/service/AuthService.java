@@ -356,7 +356,14 @@ public class AuthService {
         refreshTokenService.updateSessionJti(rotation.newToken(), newJti);
 
         User user = userRepository.findByEmail(email).orElseThrow(() -> new BadCredentialsException("Session expired. Please sign in again."));
-        activeSessionService.recordLogin(email, newJti);
+        // Re-points the SAME ActiveSession row at the new jti rather than creating a new one - a
+        // refresh is a continuation of the same device session, not a new login (see
+        // ActiveSessionService.rotateJti for why this matters).
+        if (rotation.previousSessionJti() != null) {
+            activeSessionService.rotateJti(rotation.previousSessionJti(), newJti, email);
+        } else {
+            activeSessionService.recordLogin(email, newJti);
+        }
 
         boolean wasRemember = Duration.between(rotation.newToken().getIssuedAt(), rotation.newToken().getExpiresAt()).compareTo(Duration.ofDays(1)) > 0;
         Duration refreshRemaining = Duration.between(Instant.now(), rotation.newToken().getExpiresAt());

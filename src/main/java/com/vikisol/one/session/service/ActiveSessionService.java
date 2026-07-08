@@ -44,6 +44,23 @@ public class ActiveSessionService {
                 .build());
     }
 
+    // Called on every silent /auth/refresh, NOT recordLogin - a refresh is a continuation of the
+    // same device session, not a new login. Previously this called recordLogin() again on every
+    // refresh (every ~15 minutes per tab, or every time a 401 triggered one), which meant a single
+    // browser session accumulated a brand-new ActiveSession row indefinitely for as long as it
+    // stayed open - unbounded growth that both cluttered the Active Sessions/My Security list with
+    // dozens of near-duplicate entries and, over time, degraded query performance across the app.
+    // Reuses the existing row (matched by the OLD jti, which the refresh just rotated away from)
+    // and simply re-points it at the new jti.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void rotateJti(String oldJti, String newJti, String userEmailFallback) {
+        repository.findByJti(oldJti).ifPresentOrElse(session -> {
+            session.setJti(newJti);
+            session.setLastActivityAt(Instant.now());
+            repository.save(session);
+        }, () -> recordLogin(userEmailFallback, newJti)); // fallback: shouldn't normally happen, but never drop the session silently
+    }
+
     /** Returns false if the session has been revoked (or was never issued through this service, e.g. an old token). */
     @Transactional
     public boolean touch(String jti) {
@@ -108,6 +125,11 @@ public class ActiveSessionService {
             current.get(i).setRevoked(true);
             repository.save(current.get(i));
         }
+    }
+
+    @Transactional
+    public int purgeRevokedBefore(java.time.LocalDateTime cutoff) {
+        return repository.deleteRevokedBefore(cutoff);
     }
 
     private String extractClientIp(HttpServletRequest request) {

@@ -43,6 +43,8 @@ public class ScheduledTasks {
     private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final com.vikisol.one.notification.repository.NotificationRepository notificationRepository;
+    private final com.vikisol.one.session.service.ActiveSessionService activeSessionService;
+    private final com.vikisol.one.session.service.RefreshTokenService refreshTokenService;
 
     // 30-day retention - notifications older than this are permanently deleted rather than
     // accumulating forever. Runs daily just after midnight.
@@ -51,6 +53,20 @@ public class ScheduledTasks {
     public void purgeOldNotifications() {
         int deleted = notificationRepository.deleteByCreatedAtBefore(java.time.LocalDateTime.now().minusDays(30));
         if (deleted > 0) log.info("Purged {} notification(s) older than 30 days", deleted);
+    }
+
+    // Session/refresh-token retention - both tables previously grew unboundedly (every single
+    // silent token refresh used to insert a brand-new ActiveSession row rather than reusing the
+    // existing device session, see AuthService.refresh/ActiveSessionService.rotateJti), which
+    // degraded query performance across the app over time. Expired refresh tokens and old revoked
+    // sessions are now permanently deleted daily.
+    @Scheduled(cron = "0 45 0 * * *")
+    public void purgeStaleSessionData() {
+        int refreshTokensDeleted = refreshTokenService.purgeExpired();
+        int sessionsDeleted = activeSessionService.purgeRevokedBefore(java.time.LocalDateTime.now().minusDays(30));
+        if (refreshTokensDeleted > 0 || sessionsDeleted > 0) {
+            log.info("Purged {} expired refresh token(s) and {} revoked session(s) older than 30 days", refreshTokensDeleted, sessionsDeleted);
+        }
     }
 
     @Scheduled(cron = "0 0 22 * * MON-FRI")

@@ -30,7 +30,19 @@ public class RefreshTokenService {
 
     public record IssuedToken(String rawValue, RefreshToken entity) {}
 
-    public record RotationResult(boolean success, boolean reuseDetected, RefreshToken newToken, String rawValue, String userEmail) {}
+    public record RotationResult(boolean success, boolean reuseDetected, RefreshToken newToken, String rawValue, String userEmail, String previousSessionJti) {}
+
+    // How long a just-rotated-away token is still tolerated if presented again, before it's
+    // treated as a genuine stolen-token replay. This exists because rotation is one-time-use, but
+    // a single browser session legitimately fires several near-simultaneous requests that can all
+    // independently decide to refresh (multiple tabs sharing the same cookies, or several widgets
+    // on one page each hitting a 401 within milliseconds of each other) - without this grace
+    // window, the SECOND of those concurrent refresh calls always arrives holding an
+    // already-rotated token and would otherwise trip reuse detection and nuke every session for
+    // the user, including the one that just succeeded a moment earlier. A truly stolen token
+    // replayed outside this short window is still caught exactly as before.
+    private static final java.time.Duration REUSE_GRACE_WINDOW = java.time.Duration.ofSeconds(15);
+    private static final int MAX_CHAIN_WALK = 5;
 
     private String generateRawToken() {
         byte[] bytes = new byte[48];
@@ -76,24 +88,53 @@ public class RefreshTokenService {
     public RotationResult rotate(String rawPresentedToken, Instant newExpiresAt, String ip, String userAgent) {
         Optional<RefreshToken> found = repository.findByTokenHash(hash(rawPresentedToken));
         if (found.isEmpty()) {
-            return new RotationResult(false, false, null, null, null);
+            return new RotationResult(false, false, null, null, null, null);
         }
         RefreshToken existing = found.get();
         if (existing.isExpired()) {
-            return new RotationResult(false, false, null, null, null);
+            return new RotationResult(false, false, null, null, null, null);
         }
         if (existing.isRevoked()) {
-            // Reuse of an already-rotated-away token - treat the whole family as compromised.
-            repository.revokeFamily(existing.getFamilyId());
-            return new RotationResult(false, true, null, null, existing.getUserEmail());
+            RefreshToken tip = withinGraceWindow(existing) ? walkToTip(existing) : null;
+            if (tip == null) {
+                // Either outside the grace window, or the chain walk hit a dead end (expired/too
+                // deep/broken link) - treat as a genuine replay of a stolen token.
+                repository.revokeFamily(existing.getFamilyId());
+                return new RotationResult(false, true, null, null, existing.getUserEmail(), null);
+            }
+            existing = tip; // benign race - rotate from the chain's current tip instead of failing
         }
 
+        String previousSessionJti = existing.getSessionJti();
         existing.setRevoked(true);
         IssuedToken next = issueNew(existing.getUserEmail(), existing.getFamilyId(), newExpiresAt, ip, userAgent, null);
         existing.setReplacedByHash(next.entity().getTokenHash());
         repository.save(existing);
 
-        return new RotationResult(true, false, next.entity(), next.rawValue(), existing.getUserEmail());
+        return new RotationResult(true, false, next.entity(), next.rawValue(), existing.getUserEmail(), previousSessionJti);
+    }
+
+    private boolean withinGraceWindow(RefreshToken revokedToken) {
+        java.time.LocalDateTime updatedAt = revokedToken.getUpdatedAt();
+        if (updatedAt == null) return false;
+        Instant revokedAt = updatedAt.atZone(java.time.ZoneId.systemDefault()).toInstant();
+        return revokedAt.plus(REUSE_GRACE_WINDOW).isAfter(Instant.now());
+    }
+
+    // Follows replacedByHash forward from an already-revoked token to find the current valid tip
+    // of the rotation chain, bailing out if the chain is broken, too deep, or ends in an expired
+    // token (any of which means this isn't the simple race this grace window exists for).
+    private RefreshToken walkToTip(RefreshToken revoked) {
+        RefreshToken current = revoked;
+        for (int i = 0; i < MAX_CHAIN_WALK; i++) {
+            if (current.getReplacedByHash() == null) return null;
+            RefreshToken next = repository.findByTokenHash(current.getReplacedByHash()).orElse(null);
+            if (next == null || next.isExpired()) return null;
+            if (!next.isRevoked()) return next;
+            if (!withinGraceWindow(next)) return null;
+            current = next;
+        }
+        return null;
     }
 
     @Transactional
@@ -126,5 +167,10 @@ public class RefreshTokenService {
 
     public List<RefreshToken> findFamily(UUID familyId) {
         return repository.findByFamilyId(familyId);
+    }
+
+    @Transactional
+    public int purgeExpired() {
+        return repository.deleteExpiredBefore(Instant.now());
     }
 }

@@ -220,16 +220,25 @@ public class PayrollService {
             BigDecimal annualGross = gross.multiply(BigDecimal.valueOf(12));
             BigDecimal monthlyTds = calculateTDS(annualGross).divide(BigDecimal.valueOf(12), 0, RoundingMode.CEILING);
 
+            // Professional tax is a flat, config-driven monthly charge (e.g. Rs 200) - it must
+            // never apply to an employee with no salary structure configured yet (gross = 0,
+            // typically an incomplete profile). Without this guard, every other deduction here
+            // naturally comes out to 0 when gross is 0, but this flat one didn't, so a payslip
+            // could still be generated with a genuinely negative net salary (confirmed live:
+            // "-Rs 200.00" on the Payroll dashboard's Lowest KPI).
+            BigDecimal effectiveProfessionalTax = gross.signum() > 0 ? professionalTax : BigDecimal.ZERO;
+
             // Total deductions (including LOP)
             BigDecimal totalDeductions = pfEmployee
                     .add(esiEmployee)
-                    .add(professionalTax)
+                    .add(effectiveProfessionalTax)
                     .add(monthlyTds)
                     .add(lopDeduction);
 
-            // Net salary
+            // Net salary - floored at zero as a second line of defense; a negative "salary" is
+            // never a valid figure to show or pay out regardless of which deduction caused it.
             BigDecimal netSalary = grossEarnings.subtract(pfEmployee).subtract(esiEmployee)
-                    .subtract(professionalTax).subtract(monthlyTds);
+                    .subtract(effectiveProfessionalTax).subtract(monthlyTds).max(BigDecimal.ZERO);
 
             // Employer contributions
             BigDecimal pfEmployer = pfBasic.multiply(pfEmployerRate).setScale(0, RoundingMode.CEILING);
