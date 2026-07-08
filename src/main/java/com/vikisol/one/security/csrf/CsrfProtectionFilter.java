@@ -31,8 +31,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
 
     // Endpoints reachable before a session (and therefore the CSRF cookie) exists yet.
     private static final Set<String> EXEMPT_PATHS = Set.of(
-            "/auth/login", "/auth/mfa/verify", "/auth/activate", "/auth/forgot-password",
-            "/auth/reset-password", "/assessments/webhook");
+            "/auth/login", "/auth/mfa/verify", "/auth/otp/request", "/auth/otp/verify",
+            "/auth/activate", "/auth/forgot-password", "/auth/reset-password", "/assessments/webhook");
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)

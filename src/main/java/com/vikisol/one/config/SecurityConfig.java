@@ -61,6 +61,10 @@ public class SecurityConfig {
                         // itself (issued only after a correct password), not by a real session,
                         // since no real session/cookie exists yet at this point in the flow.
                         .requestMatchers("/auth/mfa/verify").permitAll()
+                        // OTP Login - both steps are necessarily public (no session exists until
+                        // the code is verified), guarded by the short-lived, single-use, rate-
+                        // limited code itself (see AuthService.requestOtp/verifyOtpAndCompleteLogin).
+                        .requestMatchers("/auth/otp/request", "/auth/otp/verify").permitAll()
                         // Both must be reachable with an expired/missing access token by design -
                         // that's the entire point of a refresh endpoint, and logout must always be
                         // able to clear cookies/revoke a session even if the access token already

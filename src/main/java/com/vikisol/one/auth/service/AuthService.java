@@ -7,8 +7,10 @@ import com.vikisol.one.auth.entity.LoginHistoryEntry;
 import com.vikisol.one.auth.entity.PasswordHistoryEntry;
 import com.vikisol.one.auth.entity.PasswordResetToken;
 import com.vikisol.one.auth.entity.User;
+import com.vikisol.one.auth.entity.LoginOtp;
 import com.vikisol.one.auth.repository.ActivationTokenRepository;
 import com.vikisol.one.auth.repository.LoginHistoryEntryRepository;
+import com.vikisol.one.auth.repository.LoginOtpRepository;
 import com.vikisol.one.auth.repository.PasswordHistoryEntryRepository;
 import com.vikisol.one.auth.repository.PasswordResetTokenRepository;
 import com.vikisol.one.auth.repository.UserRepository;
@@ -68,6 +70,7 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final MfaService mfaService;
     private final CookieService cookieService;
+    private final LoginOtpRepository loginOtpRepository;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -87,6 +90,16 @@ public class AuthService {
     // fine for a single-instance deployment; a shared cache would be needed behind a load balancer.
     private static final java.util.concurrent.ConcurrentHashMap<String, Instant> FORGOT_PASSWORD_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
     private static final Duration FORGOT_PASSWORD_COOLDOWN = Duration.ofMinutes(2);
+
+    // OTP Login: a 6-digit code, valid for a short window per the CEO's explicit request. Worth
+    // flagging in practice - 30 seconds is a tight window for an *emailed* code specifically
+    // (SMTP delivery alone often takes longer than that), so real-world usability depends on how
+    // fast the mail provider delivers; this constant is the one place to widen it if that turns
+    // out to be a problem.
+    private static final Duration OTP_TTL = Duration.ofSeconds(30);
+    private static final Duration OTP_REQUEST_COOLDOWN = Duration.ofSeconds(30);
+    private static final int MAX_OTP_ATTEMPTS = 5;
+    private static final java.util.concurrent.ConcurrentHashMap<String, Instant> OTP_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Transactional
     public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
@@ -161,6 +174,86 @@ public class AuthService {
         }
 
         return completeLogin(user, authSettingsService.getSettings(), httpRequest, httpResponse, remember);
+    }
+
+    // OTP Login, step 1: emails a 6-digit code to the OFFICIAL address the employee typed (not
+    // personal - this proves ownership of the account they're signing into). Always responds the
+    // same way regardless of whether the email matches a real account, same "don't leak which
+    // emails exist" reasoning as forgotPassword.
+    @Transactional
+    public void requestOtp(OtpRequestDto request) {
+        String email = request.email().trim().toLowerCase();
+
+        Instant lastRequest = OTP_LAST_REQUEST.get(email);
+        if (lastRequest != null && lastRequest.plus(OTP_REQUEST_COOLDOWN).isAfter(Instant.now())) {
+            return;
+        }
+        OTP_LAST_REQUEST.put(email, Instant.now());
+
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null || !user.isEnabled()) {
+            log.info("OTP requested for an email with no active account: {}", email);
+            return;
+        }
+
+        loginOtpRepository.invalidateAllForEmail(email);
+        String code = generateOtpCode();
+        loginOtpRepository.save(LoginOtp.builder()
+                .email(email)
+                .codeHash(hashOtp(code))
+                .expiresAt(Instant.now().plus(OTP_TTL))
+                .used(false)
+                .attempts(0)
+                .build());
+
+        try {
+            emailService.sendLoginOtpEmail(user.getEmail(), user.getFirstName(), code, (int) OTP_TTL.getSeconds());
+        } catch (Exception e) {
+            log.warn("Could not send login OTP to {}: {}", email, e.getMessage());
+        }
+    }
+
+    // OTP Login, step 2: verifies the code and completes login exactly like a password sign-in
+    // (same cookies/session/refresh-token/login-history/alert path) - the OTP itself IS the
+    // credential here, so this deliberately doesn't also gate on MFA (email delivery is already
+    // a second channel beyond "something you know").
+    @Transactional
+    public AuthResponse verifyOtpAndCompleteLogin(OtpVerifyRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        String email = request.email().trim().toLowerCase();
+        LoginOtp otp = loginOtpRepository.findTopByEmailAndUsedFalseOrderByCreatedAtDesc(email)
+                .orElseThrow(() -> new BadRequestException("Invalid or expired code. Please request a new one."));
+
+        if (otp.getExpiresAt().isBefore(Instant.now())) {
+            throw new BadRequestException("This code has expired. Please request a new one.");
+        }
+        if (otp.getAttempts() >= MAX_OTP_ATTEMPTS) {
+            throw new BadRequestException("Too many incorrect attempts. Please request a new code.");
+        }
+        if (!hashOtp(request.code().trim()).equals(otp.getCodeHash())) {
+            otp.setAttempts(otp.getAttempts() + 1);
+            loginOtpRepository.save(otp);
+            throw new BadRequestException("Incorrect code. Please try again.");
+        }
+
+        otp.setUsed(true);
+        loginOtpRepository.save(otp);
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BadRequestException("Invalid or expired code. Please request a new one."));
+        return completeLogin(user, authSettingsService.getSettings(), httpRequest, httpResponse, request.remember());
+    }
+
+    private String generateOtpCode() {
+        return String.format("%06d", RANDOM.nextInt(1_000_000));
+    }
+
+    private String hashOtp(String code) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(code.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.Base64.getEncoder().encodeToString(digest);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not hash OTP code", e);
+        }
     }
 
     // Shared tail of both the plain-password and post-MFA login paths: issues the real access +

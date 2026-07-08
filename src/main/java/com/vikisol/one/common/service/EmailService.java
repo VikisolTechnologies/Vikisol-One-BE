@@ -495,6 +495,22 @@ public class EmailService {
         sendHtmlEmail(officialEmail, rendered.subject(), brandedTemplate("Welcome to Vikisol One", rendered.bodyHtml()), EmailLog.Category.WELCOME, null);
     }
 
+    // OTP Login - a short numeric code, not a clicked link, so this is deliberately terse and
+    // renders the code in large text. Sent to the OFFICIAL email address the employee typed on
+    // the login screen (that's the account they're proving ownership of), unlike password-reset/
+    // new-login-alert emails which go to the personal/recovery address.
+    public void sendLoginOtpEmail(String officialEmail, String name, String code, int validForSeconds) {
+        String subject = "Your Vikisol One sign-in code: " + code;
+        String body =
+                "<h2 style=\"margin:0 0 4px;font-size:20px;\">Your sign-in code</h2>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Dear " + name + ",</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Use this code to finish signing in to Vikisol One:</p>"
+                + "<p style=\"margin:0 0 20px;text-align:center;font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a1a;\">" + code + "</p>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">This code expires in " + validForSeconds + " seconds. If you didn't request this, you can safely ignore this email.</p>"
+                + signatureBlock("Regards", "Vikisol One Security");
+        sendHtmlEmail(officialEmail, subject, brandedTemplate("Your sign-in code", body), EmailLog.Category.OTHER, null);
+    }
+
     public void sendPasswordChangedEmail(String officialEmail, String name, String changedAt) {
         var rendered = emailTemplateService.render(TemplateKey.PASSWORD_CHANGED,
                 Map.of("name", name, "officialEmail", officialEmail, "changedAt", changedAt));

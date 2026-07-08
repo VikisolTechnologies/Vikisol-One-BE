@@ -42,6 +42,23 @@ public class AuthController {
         return ResponseEntity.ok(new ApiResponse<>(true, "Login successful", response));
     }
 
+    // OTP Login tab on the sign-in page - step 1: emails a 6-digit code to the official address
+    // typed in. Always responds success-shaped regardless of whether the account exists.
+    @PostMapping("/otp/request")
+    public ResponseEntity<ApiResponse<Void>> requestOtp(@Valid @RequestBody OtpRequestDto request) {
+        authService.requestOtp(request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "If this email is registered, a sign-in code has been sent to it.", null));
+    }
+
+    // Step 2 - verifying the code completes login exactly like a password sign-in (sets the same
+    // cookies).
+    @PostMapping("/otp/verify")
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyOtp(@Valid @RequestBody OtpVerifyRequest request,
+                                                                HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        AuthResponse response = authService.verifyOtpAndCompleteLogin(request, httpRequest, httpResponse);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Login successful", response));
+    }
+
     // Redeems the refresh cookie for a fresh access token - called automatically by the frontend
     // on a 401, not something a user ever triggers directly. Doesn't require a valid access token
     // (that's the point - the access token is expected to already be expired here).
