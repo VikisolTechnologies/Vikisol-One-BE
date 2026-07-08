@@ -9,7 +9,14 @@ import lombok.*;
 // this needs its own dedicated Login History view with IP/browser/device and a fixed set of
 // event types.
 @Entity
-@Table(name = "login_history_entries")
+// Every successful login runs a "have we seen this exact (email, ip, user-agent) combo before"
+// existence check (see AuthService.maybeSendLoginAlert) - without an index covering those
+// columns, that query does a full table scan on every single login, and this table only grows.
+// As it accumulates rows over the life of the app, logins get measurably, silently slower over
+// time even for a device/account that's logged in many times before.
+@Table(name = "login_history_entries", indexes = {
+        @Index(name = "idx_login_history_alert_lookup", columnList = "user_email, event_type, success, created_at")
+})
 @Data
 @Builder
 @NoArgsConstructor
