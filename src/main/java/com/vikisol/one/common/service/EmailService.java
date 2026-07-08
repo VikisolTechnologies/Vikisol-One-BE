@@ -501,12 +501,15 @@ public class EmailService {
     // new-login-alert emails which go to the personal/recovery address.
     public void sendLoginOtpEmail(String officialEmail, String name, String code, int validForSeconds) {
         String subject = "Your Vikisol One sign-in code: " + code;
+        String validText = validForSeconds % 60 == 0 && validForSeconds >= 60
+                ? (validForSeconds / 60) + " minute" + (validForSeconds / 60 == 1 ? "" : "s")
+                : validForSeconds + " seconds";
         String body =
                 "<h2 style=\"margin:0 0 4px;font-size:20px;\">Your sign-in code</h2>"
                 + "<p style=\"margin:0 0 20px;color:#444;\">Dear " + name + ",</p>"
                 + "<p style=\"margin:0 0 20px;color:#444;\">Use this code to finish signing in to Vikisol One:</p>"
                 + "<p style=\"margin:0 0 20px;text-align:center;font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a1a;\">" + code + "</p>"
-                + "<p style=\"margin:0 0 16px;color:#444;\">This code expires in " + validForSeconds + " seconds. If you didn't request this, you can safely ignore this email.</p>"
+                + "<p style=\"margin:0 0 16px;color:#444;\">This code expires in " + validText + ". If you didn't request this, you can safely ignore this email.</p>"
                 + signatureBlock("Regards", "Vikisol One Security");
         sendHtmlEmail(officialEmail, subject, brandedTemplate("Your sign-in code", body), EmailLog.Category.OTHER, null);
     }

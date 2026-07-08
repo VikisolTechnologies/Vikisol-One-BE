@@ -91,12 +91,11 @@ public class AuthService {
     private static final java.util.concurrent.ConcurrentHashMap<String, Instant> FORGOT_PASSWORD_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
     private static final Duration FORGOT_PASSWORD_COOLDOWN = Duration.ofMinutes(2);
 
-    // OTP Login: a 6-digit code, valid for a short window per the CEO's explicit request. Worth
-    // flagging in practice - 30 seconds is a tight window for an *emailed* code specifically
-    // (SMTP delivery alone often takes longer than that), so real-world usability depends on how
-    // fast the mail provider delivers; this constant is the one place to widen it if that turns
-    // out to be a problem.
-    private static final Duration OTP_TTL = Duration.ofSeconds(30);
+    // OTP Login: a 6-digit code. Validity and resend-cooldown are deliberately decoupled - the
+    // code itself stays usable for 5 minutes (realistic for email delivery latency), while a
+    // fresh one can be requested every 30 seconds regardless of whether the previous one has
+    // expired yet (each new request invalidates the previous code, see requestOtp).
+    private static final Duration OTP_TTL = Duration.ofMinutes(5);
     private static final Duration OTP_REQUEST_COOLDOWN = Duration.ofSeconds(30);
     private static final int MAX_OTP_ATTEMPTS = 5;
     private static final java.util.concurrent.ConcurrentHashMap<String, Instant> OTP_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
