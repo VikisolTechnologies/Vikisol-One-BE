@@ -167,10 +167,19 @@ public class TimesheetService {
 
     public List<TimesheetEntryResponse> getTeamEntries(UserPrincipal principal, LocalDate start, LocalDate end) {
         Employee manager = getEmployee(principal);
-        List<Employee> reports = employeeRepository.findByReportingManagerId(manager.getId());
-        return reports.stream()
-                .flatMap(e -> entryRepository.findByEmployeeIdAndDateBetween(e.getId(), start, end).stream())
-                .map(this::mapResponse).toList();
+        // CEO/HR Manager/Admin oversee the whole company, not just their own direct reports -
+        // without this they'd see an empty/near-empty "pending approvals" list since they
+        // typically have no one reporting directly to them in the org chart.
+        boolean isCompanyWide = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER") || a.getAuthority().equals("ROLE_ADMIN"));
+        List<UUID> employeeIds = isCompanyWide
+                ? employeeRepository.findAll().stream().map(Employee::getId).toList()
+                : employeeRepository.findByReportingManagerId(manager.getId()).stream().map(Employee::getId).toList();
+        if (employeeIds.isEmpty()) {
+            return List.of();
+        }
+        return entryRepository.findByEmployeeIdInAndDateBetween(employeeIds, start, end)
+                .stream().map(this::mapResponse).toList();
     }
 
     public List<TimesheetEntryResponse> getProjectEntries(UUID projectId, LocalDate start, LocalDate end) {
