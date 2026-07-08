@@ -32,6 +32,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -136,6 +138,17 @@ public class AuthService {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(email, request.password())
             );
+        } catch (DisabledException e) {
+            // Spring's own pre-auth check (account not yet activated) - a plain AuthenticationException
+            // subclass, NOT a BadCredentialsException, so it used to fall straight through to
+            // GlobalExceptionHandler's catch-all "Invalid email or password" for any AuthenticationException,
+            // indistinguishable from a genuinely wrong password. BadRequestException surfaces its own
+            // message verbatim instead (same fix pattern as the MFA-challenge-expired case).
+            loginHistoryService.record(email, LoginHistoryEntry.EventType.LOGIN_FAILED, false);
+            throw new BadRequestException("This account has not been activated yet. Please check your email for the activation link.");
+        } catch (LockedException e) {
+            loginHistoryService.record(email, LoginHistoryEntry.EventType.LOGIN_FAILED, false);
+            throw new BadRequestException("This account is locked. Please contact your administrator.");
         } catch (BadCredentialsException e) {
             loginHistoryService.record(email, LoginHistoryEntry.EventType.LOGIN_FAILED, false);
             if (user != null) {
@@ -368,7 +381,14 @@ public class AuthService {
         boolean wasRemember = Duration.between(rotation.newToken().getIssuedAt(), rotation.newToken().getExpiresAt()).compareTo(Duration.ofDays(1)) > 0;
         Duration refreshRemaining = Duration.between(Instant.now(), rotation.newToken().getExpiresAt());
         if (refreshRemaining.isNegative()) refreshRemaining = Duration.ZERO;
-        String csrfToken = cookieService.generateCsrfToken();
+        // Reuse the CSRF token already on the browser rather than rotating it here - rotating on
+        // every silent refresh (which fires automatically ~every 15 min) created a race: any other
+        // request composed just before/during this refresh still carries the pre-rotation value,
+        // and a CSRF failure is a 403 (never retried by the client, unlike a 401), so it surfaced
+        // as a hard "CSRF validation failed" error on unrelated form submits. Rotation still
+        // happens at login/logout, which is when it actually matters (a genuinely new session).
+        String existingCsrfToken = cookieService.readCookie(httpRequest, CookieService.CSRF_COOKIE);
+        String csrfToken = existingCsrfToken != null ? existingCsrfToken : cookieService.generateCsrfToken();
         cookieService.setAll(httpResponse, newAccessToken, accessTtl, rotation.rawValue(), refreshRemaining, wasRemember, csrfToken);
 
         boolean passwordExpired = isPasswordExpired(user, authSettings);
