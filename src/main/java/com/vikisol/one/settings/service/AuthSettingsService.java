@@ -35,7 +35,12 @@ public class AuthSettingsService {
             Map.entry("AUTH_MAX_FAILED_ATTEMPTS", "5"),
             Map.entry("AUTH_LOCKOUT_MINUTES", "15"),
             Map.entry("AUTH_PASSWORD_EXPIRY_DAYS", ""),
-            Map.entry("AUTH_SESSION_TIMEOUT_MINUTES", "15"),
+            // 15 min was too aggressive for an actively-worked-in business app - the silent
+            // background refresh is supposed to make expiry invisible, but any hiccup in that
+            // path (network blip, a slow tab, a CSRF-cookie edge case) turned into a full forced
+            // re-login every 15 min. A CEO/Admin can still tighten this per-org from Security
+            // Center -> Session Management.
+            Map.entry("AUTH_SESSION_TIMEOUT_MINUTES", "60"),
             Map.entry("AUTH_PASSWORD_MIN_LENGTH", "8"),
             Map.entry("AUTH_PASSWORD_REQUIRE_UPPERCASE", "true"),
             Map.entry("AUTH_PASSWORD_REQUIRE_LOWERCASE", "true"),
