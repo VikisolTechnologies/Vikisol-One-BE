@@ -8,6 +8,8 @@ import com.vikisol.one.report.dto.PayrollReportResponse;
 import com.vikisol.one.report.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -34,6 +36,17 @@ public class ReportController {
             @RequestParam int month, @RequestParam int year) {
         List<AttendanceReportResponse> report = reportService.getAttendanceReport(month, year);
         return ResponseEntity.ok(new ApiResponse<>(true, "Attendance report retrieved successfully", report));
+    }
+
+    @GetMapping("/attendance/pdf")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN')")
+    public ResponseEntity<byte[]> downloadAttendanceReportPdf(@RequestParam int month, @RequestParam int year) {
+        byte[] pdf = reportService.renderAttendanceReportPdf(month, year);
+        String filename = "Attendance_Report_%d_%d.pdf".formatted(month, year);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(pdf);
     }
 
     @GetMapping("/payroll")
