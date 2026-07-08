@@ -237,6 +237,16 @@ public class EmailService {
     // Sent when a login succeeds from a device/IP never seen before for this user (see
     // AuthService.maybeSendLoginAlert) - goes to the personal/recovery email, same reasoning as
     // password-reset: if the official mailbox itself was compromised, the alert still reaches them.
+    //
+    // Must be @Async here, not just on the sendHtmlEmail() overload it calls internally - Spring's
+    // proxy-based @Async only intercepts calls that come in through the bean's proxy from OUTSIDE
+    // the class. sendHtmlEmail() being @Async did nothing for this method, since it was called as
+    // a plain self-invocation (this.sendHtmlEmail(...)), bypassing the proxy entirely and running
+    // the real SMTP send synchronously - which meant every login from a device/IP the user hadn't
+    // used before blocked on a live outbound SMTP round-trip before the login response returned.
+    // AuthService calling THIS method, though, is a genuine external call through the proxy, so
+    // marking it here actually works.
+    @Async
     public void sendNewLoginAlertEmail(String personalEmail, String name, String device, String ipAddress, String whenText) {
         String subject = "New sign-in to your Vikisol One account";
         String body =
@@ -499,6 +509,10 @@ public class EmailService {
     // renders the code in large text. Sent to the OFFICIAL email address the employee typed on
     // the login screen (that's the account they're proving ownership of), unlike password-reset/
     // new-login-alert emails which go to the personal/recovery address.
+    // Same self-invocation @Async gotcha as sendNewLoginAlertEmail - without this, requesting an
+    // OTP code blocks on a live SMTP round-trip before the "code sent" response reaches the
+    // frontend, and the OTP tab's countdown timer only starts once that response arrives.
+    @Async
     public void sendLoginOtpEmail(String officialEmail, String name, String code, int validForSeconds) {
         String subject = "Your Vikisol One sign-in code: " + code;
         String validText = validForSeconds % 60 == 0 && validForSeconds >= 60
