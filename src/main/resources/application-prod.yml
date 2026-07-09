@@ -108,3 +108,13 @@ logging:
     com.vikisol: INFO
   pattern:
     console: "%d{HH:mm:ss} %-5level %logger{36} - %msg%n"
+
+# Swagger UI/OpenAPI docs are publicly reachable (SecurityConfig permits them so the dev-mode
+# docs work without auth) - fine for local dev, but in production this hands anyone the full API
+# surface (every endpoint, every request/response shape) for free reconnaissance. Disabled here
+# rather than in SecurityConfig so local/dev keeps working without a profile-conditional filter.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
