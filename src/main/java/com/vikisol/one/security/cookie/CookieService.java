@@ -50,9 +50,22 @@ public class CookieService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
+    // The frontend (hrlms.vikisol.in) and backend (api.hrlms.vikisol.in) turned out to NOT
+    // actually be same-origin in production (the vercel.json same-origin proxy this whole cookie
+    // design assumed was never what's actually deployed - the frontend calls the api subdomain
+    // directly). Without an explicit Domain, this cookie defaults to being scoped to whichever
+    // host issued it (api.hrlms.vikisol.in) - the browser still attaches it correctly on requests
+    // TO that host, but JS running on the hrlms.vikisol.in page can never read it via
+    // document.cookie (a different origin's cookies are invisible to page JS, full stop), so the
+    // X-XSRF-TOKEN header could never be populated and every mutating request failed CSRF
+    // validation unconditionally - not a timing/race issue, a hard browser security boundary.
+    // Scoping the cookie to the shared parent domain makes it visible to JS on both subdomains
+    // (they're same-site, so SameSite=Strict still applies fine) while the two __Host- prefixed
+    // auth cookies correctly stay locked to api.hrlms.vikisol.in only (that prefix forbids a
+    // Domain attribute by spec, and nothing but the backend itself needs to read those anyway).
     public ResponseCookie buildCsrfCookie(String value, Duration ttl) {
         return ResponseCookie.from(CSRF_COOKIE, value)
-                .httpOnly(false).secure(true).sameSite("Strict").path("/").maxAge(ttl).build();
+                .httpOnly(false).secure(true).sameSite("Strict").domain("vikisol.in").path("/").maxAge(ttl).build();
     }
 
     public ResponseCookie clearCookie(String name) {
@@ -69,8 +82,10 @@ public class CookieService {
     public void clearAll(HttpServletResponse response) {
         response.addHeader("Set-Cookie", clearCookie(ACCESS_COOKIE).toString());
         response.addHeader("Set-Cookie", clearCookie(REFRESH_COOKIE).toString());
-        // CSRF cookie isn't HttpOnly, but clearing it the same way (Max-Age=0) is still correct.
-        response.addHeader("Set-Cookie", ResponseCookie.from(CSRF_COOKIE, "").secure(true).sameSite("Strict").path("/").maxAge(0).build().toString());
+        // CSRF cookie isn't HttpOnly, but clearing it the same way (Max-Age=0) is still correct -
+        // Domain must match buildCsrfCookie's exactly, or this clears a different cookie instance
+        // than the one actually set and the real one lingers in the browser.
+        response.addHeader("Set-Cookie", ResponseCookie.from(CSRF_COOKIE, "").secure(true).sameSite("Strict").domain("vikisol.in").path("/").maxAge(0).build().toString());
     }
 
     public String readCookie(HttpServletRequest request, String name) {
