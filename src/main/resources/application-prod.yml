@@ -16,8 +16,19 @@ spring:
       # request traffic. Under any real concurrency this pool exhausted, and any request unlucky
       # enough to need a connection while it was full failed outright with a raw
       # "Could not open JPA EntityManager for transaction" error - including plain login.
-      maximum-pool-size: 20
-      minimum-idle: 5
+      maximum-pool-size: 10
+      # Deliberately kept LOW (not raised alongside max-pool-size): by default Hikari tries to
+      # eagerly establish `minimum-idle` connections the instant the pool is created, during
+      # application startup - and by default a failure there (a momentarily tight DB connection
+      # ceiling, a slow-to-accept-connections DB right after a redeploy, etc.) throws
+      # PoolInitializationException and crashes the whole Spring context before the app ever binds
+      # its port, which fails the health check outright. A low minimum-idle keeps startup's own
+      # connection demand small; the pool still grows lazily up to maximum-pool-size under real
+      # traffic once the app is actually up.
+      minimum-idle: 2
+      # Don't let a slow/transient DB at boot crash startup entirely - retry lazily on first real
+      # query instead of treating pool warm-up failure as fatal.
+      initialization-fail-timeout: -1
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
