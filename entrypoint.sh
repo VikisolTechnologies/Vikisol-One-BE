@@ -1,9 +1,13 @@
 #!/bin/sh
 set -e
 
-# Railway injects DATABASE_URL as postgres://user:pass@host:port/db
-# Convert to individual JDBC-compatible vars Spring Boot can use
-if [ -n "$DATABASE_URL" ]; then
+# NOTE: this used to unconditionally rebuild SPRING_DATASOURCE_URL/USERNAME/PASSWORD from
+# DATABASE_URL whenever that variable was present, silently discarding whatever was explicitly
+# set in Railway's Variables tab for this service - including a switch from private to public
+# networking and connection-timeout query params, none of which ever actually took effect because
+# of this override running first. Only fall back to DATABASE_URL if the explicit vars aren't
+# already set, so manual configuration in Railway is always respected.
+if [ -n "$DATABASE_URL" ] && [ -z "$SPRING_DATASOURCE_URL" ]; then
   STRIPPED=$(echo "$DATABASE_URL" | sed 's|^postgres://||;s|^postgresql://||')
   USERPASS=$(echo "$STRIPPED" | cut -d@ -f1)
   HOSTPATH=$(echo "$STRIPPED" | cut -d@ -f2)
