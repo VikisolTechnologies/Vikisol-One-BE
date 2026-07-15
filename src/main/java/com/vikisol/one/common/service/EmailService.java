@@ -234,6 +234,19 @@ public class EmailService {
                 + "Vikisol Technologies Pvt Ltd</p>";
     }
 
+    // Direct, ad-hoc email from a recruiter to a candidate (e.g. "Send Email" on the candidate
+    // profile) - unlike the templated offer/interview/assessment emails, the subject and body are
+    // freely typed by the sender, so this just wraps whatever they wrote in the standard branded
+    // shell rather than a fixed template.
+    @Async
+    public void sendCandidateEmail(String candidateEmail, String candidateName, String subject, String message, String senderName) {
+        String body =
+                "<p style=\"margin:0 0 16px;color:#444;\">Dear " + candidateName + ",</p>"
+                + "<div style=\"margin:0 0 20px;color:#444;white-space:pre-wrap;\">" + message.replace("<", "&lt;").replace(">", "&gt;") + "</div>"
+                + signatureBlock("Regards", senderName != null && !senderName.isBlank() ? senderName : "Vikisol One Recruitment Team");
+        sendHtmlEmail(candidateEmail, subject, brandedTemplate(subject, body), EmailLog.Category.OTHER, null);
+    }
+
     // Sent when a login succeeds from a device/IP never seen before for this user (see
     // AuthService.maybeSendLoginAlert) - goes to the personal/recovery email, same reasoning as
     // password-reset: if the official mailbox itself was compromised, the alert still reaches them.

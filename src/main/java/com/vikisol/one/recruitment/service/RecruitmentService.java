@@ -210,6 +210,25 @@ public class RecruitmentService {
         return mapCandidate(candidateRepository.save(candidate));
     }
 
+    // Direct, ad-hoc email from a recruiter/HR to the candidate (the "Send Email" button on the
+    // candidate profile) - free-typed subject/body, unlike the fixed-template interview/offer/
+    // assessment emails elsewhere in this service.
+    public void sendCandidateEmail(UUID id, CandidateEmailRequest request, UserPrincipal principal) {
+        Candidate candidate = candidateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Candidate not found"));
+        if (candidate.getEmail() == null || candidate.getEmail().isBlank()) {
+            throw new com.vikisol.one.common.exception.BadRequestException("This candidate has no email address on file");
+        }
+        if (request.subject() == null || request.subject().isBlank() || request.message() == null || request.message().isBlank()) {
+            throw new com.vikisol.one.common.exception.BadRequestException("Subject and message are required");
+        }
+        var sender = userRepository.findById(principal.getId()).orElse(null);
+        String senderName = sender != null ? sender.getFirstName() + " " + sender.getLastName() : null;
+        emailService.sendCandidateEmail(candidate.getEmail(), candidate.getFirstName() + " " + candidate.getLastName(),
+                request.subject(), request.message(), senderName);
+        auditService.record("Email Sent to Candidate", candidate.getEmail(), request.subject());
+    }
+
     // Full-profile edit - covers every field an ATS should let a recruiter/HR update (personal,
     // professional, recruitment-ownership). Every field that actually changes gets a
     // CandidateFieldChange row (same audit mechanism as updateCandidateFields), so nothing here

@@ -98,6 +98,17 @@ public class RecruitmentController {
                 recruitmentService.updateCandidate(id, request, principal)));
     }
 
+    // Direct, ad-hoc email from a recruiter/HR to the candidate - the free-typed counterpart to
+    // the fixed-template interview/offer/assessment emails elsewhere in this controller.
+    @PostMapping("/candidates/{id}/send-email")
+    @PreAuthorize("hasAnyRole('RECRUITER','HR_MANAGER','CEO','ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> sendCandidateEmail(
+            @PathVariable UUID id, @Valid @RequestBody CandidateEmailRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        recruitmentService.sendCandidateEmail(id, request, principal);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Email sent", null));
+    }
+
     // Lets a recruiter claim a candidate that has no recruiter yet (e.g. applied directly through
     // the company careers page or Arena, not sourced by anyone) - distinct from the reassignment
     // guard in updateCandidate, since this only ever fills an empty slot, never takes a candidate
