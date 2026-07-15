@@ -5,5 +5,6 @@ import java.util.Map;
 public record OffboardingDashboardStats(
         long totalActive,
         long completedThisMonth,
-        Map<String, Long> byStage
+        Map<String, Long> byStage,
+        Map<String, Long> byDepartment
 ) {}

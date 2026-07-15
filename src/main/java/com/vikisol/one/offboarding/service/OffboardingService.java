@@ -35,6 +35,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -280,7 +281,15 @@ public class OffboardingService {
             long count = all.stream().filter(c -> c.getStatus() == OffboardingCase.CaseStatus.IN_PROGRESS && c.getStage() == s).count();
             if (count > 0) byStage.put(s.name(), count);
         }
-        return new OffboardingDashboardStats(active, completedThisMonth, byStage);
+        // The dashboard's "Departments Affected" KPI was actually displaying the count of distinct
+        // entries in byStage above (i.e. how many PIPELINE STAGES have an active case right now) -
+        // a real mislabel, not just a missing click-highlight. This is the genuine per-department
+        // breakdown of active cases.
+        Map<String, Long> byDepartment = all.stream()
+                .filter(c -> c.getStatus() == OffboardingCase.CaseStatus.IN_PROGRESS)
+                .filter(c -> c.getEmployee().getDepartment() != null)
+                .collect(Collectors.groupingBy(c -> c.getEmployee().getDepartment().getName(), LinkedHashMap::new, Collectors.counting()));
+        return new OffboardingDashboardStats(active, completedThisMonth, byStage, byDepartment);
     }
 
     // Eligible for exit-package generation once HR has given final approval (or later stages).
