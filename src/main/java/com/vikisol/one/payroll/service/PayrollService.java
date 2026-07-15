@@ -42,6 +42,7 @@ public class PayrollService {
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
     private final DocumentGenerationService documentGenerationService;
+    private final com.vikisol.one.common.service.EmailService emailService;
 
     // ── Config ──────────────────────────────────────────────────────────────
 
