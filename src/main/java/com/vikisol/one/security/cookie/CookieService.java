@@ -76,6 +76,17 @@ public class CookieService {
                         String refreshToken, Duration refreshTtl, boolean rememberMe, String csrfToken) {
         response.addHeader("Set-Cookie", buildAccessCookie(accessToken, accessTtl).toString());
         response.addHeader("Set-Cookie", buildRefreshCookie(refreshToken, refreshTtl, rememberMe).toString());
+        // Anyone who was issued a cookie before the Domain=vikisol.in fix shipped still has an old
+        // host-scoped (no Domain attribute) XSRF-TOKEN cookie sitting in their browser alongside
+        // the new one - two cookies with the same name but different scope, and which one the
+        // browser sends first in the Cookie header vs. which one JS's document.cookie parsing
+        // picks first are two independent, not-necessarily-consistent orderings. That mismatch
+        // reproduces the exact same "CSRF validation failed" symptom indefinitely, for every
+        // browser that had a session before this fix, until they happen to manually clear
+        // cookies. Proactively clearing the old host-scoped instance on every login/refresh (not
+        // just relying on clearAll(), which only ever runs on logout) self-heals this without
+        // requiring any user action.
+        response.addHeader("Set-Cookie", ResponseCookie.from(CSRF_COOKIE, "").secure(true).sameSite("Strict").path("/").maxAge(0).build().toString());
         response.addHeader("Set-Cookie", buildCsrfCookie(csrfToken, refreshTtl).toString());
     }
 
