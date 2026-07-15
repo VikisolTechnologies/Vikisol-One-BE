@@ -37,6 +37,7 @@ public class EmployeeController {
     private final com.vikisol.one.employee.service.AccountStatusService accountStatusService;
     private final com.vikisol.one.auth.service.LoginLockoutService loginLockoutService;
     private final EmployeeRepository employeeRepository;
+    private final com.vikisol.one.employee.service.EmployeeBulkImportService employeeBulkImportService;
 
     // Real-time inline validation for the Add/Edit Employee form - lets HR see "already exists"
     // beside the field before submitting, instead of a raw DB constraint violation surfacing only
@@ -87,6 +88,14 @@ public class EmployeeController {
     public ResponseEntity<ApiResponse<EmployeeResponse>> create(@RequestBody EmployeeRequest request) {
         EmployeeResponse employee = employeeService.createEmployee(request);
         return ResponseEntity.ok(new ApiResponse<>(true, "Employee created", employee));
+    }
+
+    @PostMapping(value = "/bulk-import", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('CEO','HR_MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<com.vikisol.one.employee.dto.BulkImportResult>> bulkImport(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws java.io.IOException {
+        var result = employeeBulkImportService.importCsv(file);
+        return ResponseEntity.ok(new ApiResponse<>(true, result.created() + " employee(s) created, " + result.failed() + " failed", result));
     }
 
     @PutMapping("/{id}")
