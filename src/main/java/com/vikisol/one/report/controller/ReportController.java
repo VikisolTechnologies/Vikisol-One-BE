@@ -31,7 +31,7 @@ public class ReportController {
     }
 
     @GetMapping("/attendance")
-    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<AttendanceReportResponse>>> getAttendanceReport(
             @RequestParam int month, @RequestParam int year) {
         List<AttendanceReportResponse> report = reportService.getAttendanceReport(month, year);
@@ -39,7 +39,7 @@ public class ReportController {
     }
 
     @GetMapping("/attendance/pdf")
-    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'CEO', 'ADMIN', 'MANAGER')")
     public ResponseEntity<byte[]> downloadAttendanceReportPdf(@RequestParam int month, @RequestParam int year) {
         byte[] pdf = reportService.renderAttendanceReportPdf(month, year);
         String filename = "Attendance_Report_%d_%d.pdf".formatted(month, year);
