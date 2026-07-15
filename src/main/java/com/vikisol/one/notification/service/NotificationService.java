@@ -3,10 +3,14 @@ package com.vikisol.one.notification.service;
 import com.vikisol.one.common.dto.PagedResponse;
 import com.vikisol.one.common.exception.ResourceNotFoundException;
 import com.vikisol.one.notification.dto.CreateNotificationRequest;
+import com.vikisol.one.notification.dto.NotificationPreferenceRequest;
+import com.vikisol.one.notification.dto.NotificationPreferenceResponse;
 import com.vikisol.one.notification.dto.NotificationResponse;
 import com.vikisol.one.notification.entity.Notification;
 import com.vikisol.one.notification.entity.Notification.NotificationType;
 import com.vikisol.one.notification.entity.Notification.Priority;
+import com.vikisol.one.notification.entity.NotificationPreference;
+import com.vikisol.one.notification.repository.NotificationPreferenceRepository;
 import com.vikisol.one.notification.repository.NotificationRepository;
 import com.vikisol.one.security.service.UserPrincipal;
 import lombok.RequiredArgsConstructor;
@@ -24,8 +28,10 @@ import java.util.UUID;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final NotificationPreferenceRepository notificationPreferenceRepository;
 
     public void createNotification(CreateNotificationRequest request) {
+        if (!isAllowed(request.recipientId(), request.type())) return;
         Notification n = new Notification();
         n.setRecipientId(request.recipientId());
         n.setTitle(request.title());
@@ -37,6 +43,47 @@ public class NotificationService {
         n.setCategory(request.category());
         n.setDeepLink(request.deepLink());
         notificationRepository.save(n);
+    }
+
+    // No saved preference row yet -> default to sending, matching this app's behavior before
+    // preferences existed at all (nobody's notifications silently start disappearing just because
+    // they've never opened the Settings > Notifications tab).
+    private boolean isAllowed(UUID recipientId, NotificationType type) {
+        NotificationPreference p = notificationPreferenceRepository.findByUserId(recipientId).orElse(null);
+        if (p == null) return true;
+        return switch (type) {
+            case LEAVE -> p.isLeaveReminders();
+            case TIMESHEET -> p.isTimesheetReminders();
+            case PAYROLL -> p.isPayrollAlerts();
+            case RECRUITMENT -> p.isInterviewReminders();
+            case ATTENDANCE, PERFORMANCE, GENERAL, PROJECT, OFFBOARDING, TICKET -> p.isPushNotifications();
+        };
+    }
+
+    public NotificationPreferenceResponse getMyPreferences(UserPrincipal principal) {
+        NotificationPreference p = notificationPreferenceRepository.findByUserId(principal.getId())
+                .orElseGet(() -> NotificationPreference.builder().userId(principal.getId()).build());
+        return mapPreference(p);
+    }
+
+    public NotificationPreferenceResponse updateMyPreferences(UserPrincipal principal, NotificationPreferenceRequest request) {
+        NotificationPreference p = notificationPreferenceRepository.findByUserId(principal.getId())
+                .orElseGet(() -> notificationPreferenceRepository.save(
+                        NotificationPreference.builder().userId(principal.getId()).build()));
+        if (request.emailNotifications() != null) p.setEmailNotifications(request.emailNotifications());
+        if (request.pushNotifications() != null) p.setPushNotifications(request.pushNotifications());
+        if (request.leaveReminders() != null) p.setLeaveReminders(request.leaveReminders());
+        if (request.timesheetReminders() != null) p.setTimesheetReminders(request.timesheetReminders());
+        if (request.birthdayReminders() != null) p.setBirthdayReminders(request.birthdayReminders());
+        if (request.interviewReminders() != null) p.setInterviewReminders(request.interviewReminders());
+        if (request.payrollAlerts() != null) p.setPayrollAlerts(request.payrollAlerts());
+        return mapPreference(notificationPreferenceRepository.save(p));
+    }
+
+    private NotificationPreferenceResponse mapPreference(NotificationPreference p) {
+        return new NotificationPreferenceResponse(p.isEmailNotifications(), p.isPushNotifications(),
+                p.isLeaveReminders(), p.isTimesheetReminders(), p.isBirthdayReminders(),
+                p.isInterviewReminders(), p.isPayrollAlerts());
     }
 
     public void sendNotification(UUID recipientId, String title, String message,

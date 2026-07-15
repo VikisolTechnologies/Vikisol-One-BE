@@ -380,6 +380,19 @@ public class PayrollService {
             }
         }
 
+        var built = buildPayslipFields(payslip, employee);
+        String fileUrl = documentGenerationService.generateAndStore(Document.DocumentType.PAYSLIP, built.fields(), employee, built.title());
+        auditService.record("Payslip PDF Generated", employee.getEmployeeId(), built.title());
+        return fileUrl;
+    }
+
+    private record PayslipFields(java.util.Map<String, String> fields, String title) {}
+
+    // Extracted out of generatePayslipPdf so the bulk download/email paths below can reuse the
+    // exact same field-building logic without also going through generateAndStore() - which
+    // writes a new stored file + Document row on every call. Fine for a single ad-hoc download,
+    // wasteful (and slow) called 100+ times in a loop for a bulk operation.
+    private PayslipFields buildPayslipFields(Payslip payslip, Employee employee) {
         String fullName = employee.getFirstName() + " " + employee.getLastName();
         String departmentName = employee.getDepartment() != null ? employee.getDepartment().getName() : "";
         String designationTitle = employee.getDesignation() != null ? employee.getDesignation().getTitle() : "";
@@ -421,9 +434,61 @@ public class PayrollService {
         fields.put("NetSalary", payslip.getNetSalary().toPlainString());
 
         String title = "Payslip - " + monthName + " " + payslip.getYear();
-        String fileUrl = documentGenerationService.generateAndStore(Document.DocumentType.PAYSLIP, fields, employee, title);
-        auditService.record("Payslip PDF Generated", employee.getEmployeeId(), title);
-        return fileUrl;
+        return new PayslipFields(fields, title);
+    }
+
+    private boolean isPayrollPrivileged(UserPrincipal principal) {
+        return principal.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_CEO") || a.getAuthority().equals("ROLE_HR_MANAGER")
+                        || a.getAuthority().equals("ROLE_FINANCE") || a.getAuthority().equals("ROLE_ADMIN"));
+    }
+
+    // Bulk Download - zips one PDF per requested payslip. Privileged roles only (matches the
+    // single-payslip download's own privilege check) since this is a payroll-admin bulk action,
+    // never exposed to a plain employee's own view.
+    public byte[] bulkDownloadPayslipsZip(List<UUID> payslipIds, UserPrincipal principal) {
+        if (!isPayrollPrivileged(principal)) {
+            throw new com.vikisol.one.common.exception.BadRequestException("Only CEO, HR Manager, Finance, or Admin can bulk-download payslips");
+        }
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(baos)) {
+            for (UUID id : payslipIds) {
+                Payslip payslip = payslipRepository.findById(id).orElse(null);
+                if (payslip == null) continue;
+                Employee employee = payslip.getEmployee();
+                var built = buildPayslipFields(payslip, employee);
+                byte[] pdf = documentGenerationService.render(Document.DocumentType.PAYSLIP, built.fields());
+                String entryName = employee.getEmployeeId() + "_" + built.title().replaceAll("[^a-zA-Z0-9]+", "_") + ".pdf";
+                zip.putNextEntry(new java.util.zip.ZipEntry(entryName));
+                zip.write(pdf);
+                zip.closeEntry();
+            }
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Could not build payslip zip: " + e.getMessage(), e);
+        }
+        auditService.record("Bulk Payslip Download", "Payroll", payslipIds.size() + " payslips zipped");
+        return baos.toByteArray();
+    }
+
+    // Bulk Email - generates each payslip PDF (no storage side effect, same reasoning as the zip
+    // path above) and emails it as an attachment to the employee's official address.
+    public void bulkEmailPayslips(List<UUID> payslipIds, UserPrincipal principal) {
+        if (!isPayrollPrivileged(principal)) {
+            throw new com.vikisol.one.common.exception.BadRequestException("Only CEO, HR Manager, Finance, or Admin can bulk-email payslips");
+        }
+        int sent = 0;
+        for (UUID id : payslipIds) {
+            Payslip payslip = payslipRepository.findById(id).orElse(null);
+            if (payslip == null) continue;
+            Employee employee = payslip.getEmployee();
+            if (employee.getEmail() == null || employee.getEmail().isBlank()) continue;
+            var built = buildPayslipFields(payslip, employee);
+            byte[] pdf = documentGenerationService.render(Document.DocumentType.PAYSLIP, built.fields());
+            String fileName = built.title().replaceAll("[^a-zA-Z0-9]+", "_") + ".pdf";
+            emailService.sendPayslipEmail(employee.getEmail(), employee.getFirstName(), built.title(), pdf, fileName);
+            sent++;
+        }
+        auditService.record("Bulk Payslip Email", "Payroll", sent + " payslips emailed");
     }
 
     private String buildAmountRows(java.util.Map<String, java.math.BigDecimal> rows) {

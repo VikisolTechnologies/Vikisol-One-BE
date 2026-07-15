@@ -183,6 +183,21 @@ public class EmailService {
         }
     }
 
+    // Bulk Payslip Email - one payslip PDF attached per send, used in a loop by
+    // PayrollService.bulkEmailPayslips. @Async here (not just relying on the 4-arg overload it
+    // calls, which is a self-invocation the proxy can't intercept) so PayrollService's loop
+    // dispatches each send to the background instead of blocking on N sequential SMTP round-trips.
+    @Async
+    public void sendPayslipEmail(String officialEmail, String firstName, String payPeriodTitle, byte[] pdfBytes, String fileName) {
+        String subject = payPeriodTitle;
+        String body =
+                "<p style=\"margin:0 0 16px;color:#444;\">Dear " + firstName + ",</p>"
+                + "<p style=\"margin:0 0 20px;color:#444;\">Please find attached your payslip for this period.</p>"
+                + signatureBlock("Regards", "Vikisol One Payroll Team");
+        sendHtmlEmailWithAttachment(officialEmail, subject, brandedTemplate(payPeriodTitle, body),
+                new Attachment(fileName, pdfBytes), EmailLog.Category.OTHER, null);
+    }
+
     // Multi-attachment variant - needed for the offboarding "exit package" email, which bundles
     // whichever generated documents (experience letter, relieving letter, payslips, etc.) actually
     // exist for the employee rather than a single PDF.

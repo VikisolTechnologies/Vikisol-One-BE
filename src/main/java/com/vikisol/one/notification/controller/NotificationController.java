@@ -1,6 +1,7 @@
 package com.vikisol.one.notification.controller;
 
 import com.vikisol.one.common.dto.ApiResponse;
+import com.vikisol.one.notification.dto.NotificationPreferenceRequest;
 import com.vikisol.one.notification.entity.Notification.Priority;
 import com.vikisol.one.notification.service.NotificationService;
 import com.vikisol.one.security.service.UserPrincipal;
@@ -80,5 +81,16 @@ public class NotificationController {
                                                      @AuthenticationPrincipal UserPrincipal principal) {
         notificationService.setArchived(id, false, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Unarchived", null));
+    }
+
+    @GetMapping("/preferences")
+    public ResponseEntity<ApiResponse<?>> getMyPreferences(@AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Preferences fetched", notificationService.getMyPreferences(principal)));
+    }
+
+    @PutMapping("/preferences")
+    public ResponseEntity<ApiResponse<?>> updateMyPreferences(@AuthenticationPrincipal UserPrincipal principal,
+                                                               @RequestBody NotificationPreferenceRequest request) {
+        return ResponseEntity.ok(new ApiResponse<>(true, "Preferences updated", notificationService.updateMyPreferences(principal, request)));
     }
 }

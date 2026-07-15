@@ -9,6 +9,8 @@ import com.vikisol.one.security.service.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -89,6 +91,25 @@ public class PayrollController {
             @PathVariable UUID payslipId, @AuthenticationPrincipal UserPrincipal principal) {
         String fileUrl = payrollService.generatePayslipPdf(payslipId, principal);
         return ResponseEntity.ok(new ApiResponse<>(true, "Payslip PDF generated", fileUrl));
+    }
+
+    @PostMapping("/payslips/bulk-download")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'FINANCE', 'CEO', 'ADMIN')")
+    public ResponseEntity<byte[]> bulkDownloadPayslips(
+            @RequestBody List<UUID> payslipIds, @AuthenticationPrincipal UserPrincipal principal) {
+        byte[] zip = payrollService.bulkDownloadPayslipsZip(payslipIds, principal);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"Payslips.zip\"")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(zip);
+    }
+
+    @PostMapping("/payslips/bulk-email")
+    @PreAuthorize("hasAnyRole('HR_MANAGER', 'FINANCE', 'CEO', 'ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> bulkEmailPayslips(
+            @RequestBody List<UUID> payslipIds, @AuthenticationPrincipal UserPrincipal principal) {
+        payrollService.bulkEmailPayslips(payslipIds, principal);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Payslips emailed", null));
     }
 
     @GetMapping("/summary")
